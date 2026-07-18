@@ -1,0 +1,7 @@
+# nava config for `mage Loadgen:Concurrent` — a burst of concurrent mixed
+# traffic, useful for seeing overlapping traces / service-level throughput
+# in SigNoz at the same time.
+directory: "."
+run:
+  main: ./cmd/loadgen
+  args: ["-scenario=mixed", "-count=60", "-concurrency=10"]

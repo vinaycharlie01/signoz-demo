@@ -1,0 +1,5 @@
+# nava config for `mage Loadgen:Normal` — 20 sequential, healthy requests.
+directory: "."
+run:
+  main: ./cmd/loadgen
+  args: ["-scenario=normal", "-count=20", "-concurrency=1"]

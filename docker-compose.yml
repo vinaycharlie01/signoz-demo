@@ -1,0 +1,95 @@
+# Local dev stack for signoz-demo.
+#
+# What this file DOES provision (verified/adapted from the SigNoz repo's own
+# contributor dev-stack at .devenv/docker/ — see docs/signoz-architecture.md
+# §2.10 for the source): ClickHouse (single-node, simplified — no
+# Zookeeper/replication) + the signoz-otel-collector + this repo's own
+# Golang Order Service.
+#
+# What this file DOES NOT provision: the SigNoz application (querier/API/UI)
+# itself. That is not an oversight — SigNoz's own deploy/install.sh and
+# deploy/README.md state the classic docker-compose self-host method is
+# deprecated in favor of Foundry (signoz.io/docs/install/docker/). Install
+# SigNoz via Foundry, point it at the same ClickHouse this file starts
+# (tcp://localhost:9000), and it will pick up everything the collector below
+# writes. See README.md "SigNoz setup" for the exact steps.
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.12.5
+    container_name: signoz-demo-clickhouse
+    ports:
+      - "127.0.0.1:8123:8123" # HTTP
+      - "127.0.0.1:9000:9000" # native protocol
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "0.0.0.0:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+
+  otel-collector-migrator:
+    image: signoz/signoz-otel-collector:v0.144.6
+    container_name: signoz-demo-collector-migrator
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        /signoz-otel-collector migrate bootstrap &&
+        /signoz-otel-collector migrate sync up &&
+        /signoz-otel-collector migrate async up
+    environment:
+      SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_DSN: tcp://clickhouse:9000
+      SIGNOZ_OTEL_COLLECTOR_TIMEOUT: 10m
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    restart: "no"
+
+  signoz-otel-collector:
+    image: signoz/signoz-otel-collector:v0.142.0
+    container_name: signoz-demo-collector
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        /signoz-otel-collector migrate sync check &&
+        /signoz-otel-collector --config=/etc/otel-collector-config.yaml
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    environment:
+      SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_DSN: tcp://clickhouse:9000
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+      - "13133:13133" # health check extension
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "localhost:13133"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      otel-collector-migrator:
+        condition: service_completed_successfully
+
+  app:
+    build: .
+    container_name: signoz-demo-app
+    ports:
+      - "8090:8090"
+    environment:
+      HTTP_ADDR: :8090
+      DB_PATH: /data/orders.db
+      OTEL_SERVICE_NAME: signoz-demo-order-service
+      DEPLOYMENT_ENVIRONMENT: docker-compose
+      OTEL_EXPORTER_OTLP_ENDPOINT: signoz-otel-collector:4317
+      OTEL_EXPORTER_OTLP_INSECURE: "true"
+    volumes:
+      - app-data:/data
+    depends_on:
+      signoz-otel-collector:
+        condition: service_healthy
+
+volumes:
+  clickhouse-data:
+  app-data:
