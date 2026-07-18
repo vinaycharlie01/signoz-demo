@@ -39,12 +39,16 @@ SQLite (orders.db)
 ```
 
 `internal/domain` sits behind both ports and imports neither `net/http`,
-`database/sql`, nor OpenTelemetry — see `docs/diagrams/04-*` and
-`docs/diagrams/03-trace-request-flow.md` for the traced version of this same
-request, and `docs/signoz-architecture.md` for the full SigNoz-side
-architecture analysis this project is based on.
+`database/sql`, nor OpenTelemetry.
 
-All five Mermaid diagrams:
+**Start here for the full SigNoz architecture**: [`docs/FULL_ARCHITECTURE.md`](docs/FULL_ARCHITECTURE.md)
+is the single-document version — directory map, all five diagrams, and the
+complete component-by-component breakdown in one place. The same material
+also exists split across [`docs/signoz-architecture.md`](docs/signoz-architecture.md)
+and the individual diagram files below, if you want the narrower version of
+one piece.
+
+All five Mermaid diagrams (standalone files):
 
 - [`docs/diagrams/01-high-level-architecture.md`](docs/diagrams/01-high-level-architecture.md)
 - [`docs/diagrams/02-telemetry-ingestion-pipeline.md`](docs/diagrams/02-telemetry-ingestion-pipeline.md)
