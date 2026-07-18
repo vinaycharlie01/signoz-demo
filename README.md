@@ -9,6 +9,10 @@ current architecture (see `docs/signoz-architecture.md`).
 This is a teaching/demo repository, not a template for a real production
 service — see "Simplifications" below for what was intentionally cut.
 
+Also in this repo: [`docs/AI_AGENT_IDEAS_FOR_SIGNOZ.md`](docs/AI_AGENT_IDEAS_FOR_SIGNOZ.md)
+— 1000 brainstorm ideas for AI agents that integrate with SigNoz, for the
+**Agents of SigNoz** hackathon.
+
 ## Project overview
 
 | | |
