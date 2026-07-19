@@ -1,0 +1,6 @@
+# nava config for `mage Loadgen:Slow` — requests that hit the injected
+# ~1.8s SQLite latency (see internal/adapters/sqlite: injectedSlowness).
+directory: "."
+run:
+  main: ./cmd/loadgen
+  args: ["-scenario=slow", "-count=5", "-concurrency=1"]

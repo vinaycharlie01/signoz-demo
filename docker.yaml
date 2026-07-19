@@ -1,0 +1,8 @@
+# nava config for the `Docker` mage namespace — drives `docker compose`
+# against docker-compose.yml (app + ClickHouse + signoz-otel-collector).
+compose:
+  files: ["docker-compose.yml"]
+  projectName: signoz-demo
+  build: true
+  detach: true
+  remove: true

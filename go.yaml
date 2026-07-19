@@ -1,0 +1,27 @@
+# nava (github.com/nirantaraai/nava) config for the `Go` mage namespace.
+# See magefile.go — this repo has no Makefile and no shell scripts; every
+# "make target"-shaped command in the README is a `mage <namespace>:<target>`
+# instead, driven by this file.
+directory: "."
+
+setup:
+  modDownload: true
+  modTidy: true
+
+build:
+  output: bin/api
+  main: ./cmd/api
+  noCGO: true
+
+run:
+  main: ./cmd/api
+
+test:
+  packages: ["./..."]
+  args: ["-v"]
+
+vet:
+  packages: ["./..."]
+
+lint:
+  args: ["./..."]

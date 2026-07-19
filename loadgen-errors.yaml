@@ -1,0 +1,6 @@
+# nava config for `mage Loadgen:Errors` — a mix of use-case-level ("error")
+# and repository-level ("db-fail") simulated failures.
+directory: "."
+run:
+  main: ./cmd/loadgen
+  args: ["-scenario=mixed", "-count=15", "-concurrency=1"]
