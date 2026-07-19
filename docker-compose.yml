@@ -1,95 +1,54 @@
-# Local dev stack for signoz-demo.
+# signoz-demo — application-only compose file.
 #
-# What this file DOES provision (verified/adapted from the SigNoz repo's own
-# contributor dev-stack at .devenv/docker/ — see docs/signoz-architecture.md
-# §2.10 for the source): ClickHouse (single-node, simplified — no
-# Zookeeper/replication) + the signoz-otel-collector + this repo's own
-# Golang Order Service.
+# Prerequisites
+# -------------
+# The SigNoz Foundry stack (ClickHouse, ClickHouse Keeper, signoz-otel-collector
+# ingester, Postgres, and the SigNoz UI) must already be running.  Start it once
+# from the repo root:
 #
-# What this file DOES NOT provision: the SigNoz application (querier/API/UI)
-# itself. That is not an oversight — SigNoz's own deploy/install.sh and
-# deploy/README.md state the classic docker-compose self-host method is
-# deprecated in favor of Foundry (signoz.io/docs/install/docker/). Install
-# SigNoz via Foundry, point it at the same ClickHouse this file starts
-# (tcp://localhost:9000), and it will pick up everything the collector below
-# writes. See README.md "SigNoz setup" for the exact steps.
+#   cd /path/to/foundry
+#   docker compose -f pours/deployment/compose.yaml up -d
+#
+# That stack creates the "signoz-network" Docker network and exposes the
+# OTLP ingester on ports 4317 (gRPC) and 4318 (HTTP) inside that network
+# (container alias: signoz-ingester) and also on the host loopback.
+#
+# This file ONLY starts the Order Service application.  It attaches to the
+# already-existing "signoz-network" so the app can reach the ingester by its
+# in-network alias (signoz-ingester:4317) without any extra port-forwarding.
+
+networks:
+  signoz-network:
+    external: true   # must exist — created by the Foundry compose stack
+
 services:
-  clickhouse:
-    image: clickhouse/clickhouse-server:25.12.5
-    container_name: signoz-demo-clickhouse
-    ports:
-      - "127.0.0.1:8123:8123" # HTTP
-      - "127.0.0.1:9000:9000" # native protocol
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "0.0.0.0:8123/ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    volumes:
-      - clickhouse-data:/var/lib/clickhouse
-
-  otel-collector-migrator:
-    image: signoz/signoz-otel-collector:v0.144.6
-    container_name: signoz-demo-collector-migrator
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        /signoz-otel-collector migrate bootstrap &&
-        /signoz-otel-collector migrate sync up &&
-        /signoz-otel-collector migrate async up
-    environment:
-      SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_DSN: tcp://clickhouse:9000
-      SIGNOZ_OTEL_COLLECTOR_TIMEOUT: 10m
-    depends_on:
-      clickhouse:
-        condition: service_healthy
-    restart: "no"
-
-  signoz-otel-collector:
-    image: signoz/signoz-otel-collector:v0.142.0
-    container_name: signoz-demo-collector
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        /signoz-otel-collector migrate sync check &&
-        /signoz-otel-collector --config=/etc/otel-collector-config.yaml
-    volumes:
-      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
-    environment:
-      SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_DSN: tcp://clickhouse:9000
-    ports:
-      - "4317:4317" # OTLP gRPC
-      - "4318:4318" # OTLP HTTP
-      - "13133:13133" # health check extension
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "localhost:13133"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    depends_on:
-      clickhouse:
-        condition: service_healthy
-      otel-collector-migrator:
-        condition: service_completed_successfully
-
   app:
     build: .
     container_name: signoz-demo-app
+    networks:
+      - signoz-network
     ports:
       - "8090:8090"
     environment:
-      HTTP_ADDR: :8090
+      # ── Application ────────────────────────────────────────────────────────
+      HTTP_ADDR: ":8090"
       DB_PATH: /data/orders.db
+
+      # ── OpenTelemetry ───────────────────────────────────────────────────────
+      # Service identity — shows up in SigNoz → Services and on every span/log.
       OTEL_SERVICE_NAME: signoz-demo-order-service
+      SERVICE_VERSION: "0.1.0"
       DEPLOYMENT_ENVIRONMENT: docker-compose
-      OTEL_EXPORTER_OTLP_ENDPOINT: signoz-otel-collector:4317
+
+      # Send all three signals (traces, metrics, logs) to the Foundry ingester.
+      # Inside signoz-network the ingester is reachable by its alias; gRPC port.
+      OTEL_EXPORTER_OTLP_ENDPOINT: signoz-ingester:4317
       OTEL_EXPORTER_OTLP_INSECURE: "true"
+
     volumes:
       - app-data:/data
-    depends_on:
-      signoz-otel-collector:
-        condition: service_healthy
+
+    restart: unless-stopped
 
 volumes:
-  clickhouse-data:
   app-data:
