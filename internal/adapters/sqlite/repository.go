@@ -81,8 +81,20 @@ func (r *Repository) startSpan(ctx context.Context, operation, statement string)
 
 func (r *Repository) recordResult(ctx context.Context, span trace.Span, operation string, start time.Time, err error) {
 	duration := time.Since(start).Seconds()
+
+	// ── latency histogram (existing) ────────────────────────────────────────
 	r.metrics.DBOperationDuration.Record(ctx, duration, observability.WithDBOperation(operation))
+
+	// ── call counter (ok | error) ───────────────────────────────────────────
+	status := "ok"
 	if err != nil {
+		status = "error"
+	}
+	r.metrics.DBCallsTotal.Add(ctx, 1, observability.WithDBOperationAndStatus(operation, status))
+
+	// ── error counter ────────────────────────────────────────────────────────
+	if err != nil {
+		r.metrics.DBErrorsTotal.Add(ctx, 1, observability.WithDBOperation(operation))
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 	} else {
@@ -112,11 +124,18 @@ func (r *Repository) Save(ctx context.Context, order *domain.Order) error {
 		return err
 	}
 
-	_, err = r.db.ExecContext(ctx,
+	result, execErr := r.db.ExecContext(ctx,
 		`INSERT INTO orders (id, customer_name, item, quantity, amount_cents, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		order.ID, order.CustomerName, order.Item, order.Quantity, order.AmountCents, string(order.Status), order.CreatedAt.Format(time.RFC3339Nano),
 	)
-	return err
+	if execErr != nil {
+		err = execErr
+		return err
+	}
+	if n, affErr := result.RowsAffected(); affErr == nil {
+		r.metrics.DBRowsAffectedTotal.Add(ctx, n, observability.WithDBOperation("INSERT"))
+	}
+	return nil
 }
 
 // FindByID reads a single order back out.
@@ -139,6 +158,8 @@ func (r *Repository) FindByID(ctx context.Context, id string) (*domain.Order, er
 		err = scanErr
 		return nil, err
 	}
+	// ── rows-returned counter ────────────────────────────────────────────────
+	r.metrics.DBRowsReturnedTotal.Add(ctx, 1, observability.WithDBOperation("SELECT"))
 	return order, nil
 }
 
@@ -172,6 +193,8 @@ func (r *Repository) List(ctx context.Context) ([]*domain.Order, error) {
 		return nil, err
 	}
 	span.SetAttributes(attribute.Int("db.rows_returned", len(orders)))
+	// ── rows-returned counter ────────────────────────────────────────────────
+	r.metrics.DBRowsReturnedTotal.Add(ctx, int64(len(orders)), observability.WithDBOperation("SELECT"))
 	return orders, nil
 }
 

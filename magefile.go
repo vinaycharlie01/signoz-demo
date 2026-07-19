@@ -110,6 +110,12 @@ func (Loadgen) Errors() error { return runLoadgen("loadgen-errors.yaml") }
 // Concurrent sends a 10-worker burst of mixed traffic.
 func (Loadgen) Concurrent() error { return runLoadgen("loadgen-concurrent.yaml") }
 
+// Full runs every scenario in one shot (normal → slow → error → db-fail →
+// list-orders → get-by-id → concurrent burst) to populate every panel in the
+// SigNoz Order Service Overview dashboard without having to run each target
+// individually. Equivalent to running all other Loadgen targets back-to-back.
+func (Loadgen) Full() error { return runLoadgen("loadgen-full.yaml") }
+
 func runLoadgen(configPath string) error {
 	runner, err := gomagex.NewRunnerFromYAML(configPath)
 	if err != nil {

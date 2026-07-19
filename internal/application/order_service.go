@@ -21,17 +21,25 @@ import (
 
 const tracerName = "signoz-demo/internal/application"
 
+// Pricer is the driven port for external pricing lookups.
+// Satisfied by *pricing.Client; use nil to skip the call.
+type Pricer interface {
+	GetPrice(ctx context.Context, item string) error
+}
+
 // OrderService implements ports.OrderService. It is the only layer allowed
 // to know both the domain model and the repository port at once.
 type OrderService struct {
 	repo    ports.OrderRepository
 	ids     ports.IDGenerator
 	metrics *observability.Metrics
+	pricer  Pricer // optional external call — nil means skip
 }
 
 // NewOrderService wires the use case with its driven-port dependencies.
-func NewOrderService(repo ports.OrderRepository, ids ports.IDGenerator, metrics *observability.Metrics) *OrderService {
-	return &OrderService{repo: repo, ids: ids, metrics: metrics}
+// pricer may be nil if external pricing calls are not needed.
+func NewOrderService(repo ports.OrderRepository, ids ports.IDGenerator, metrics *observability.Metrics, pricer Pricer) *OrderService {
+	return &OrderService{repo: repo, ids: ids, metrics: metrics, pricer: pricer}
 }
 
 // CreateOrder validates and persists a new order. Scenario "error" (see
@@ -63,6 +71,16 @@ func (s *OrderService) CreateOrder(ctx context.Context, in ports.CreateOrderInpu
 
 	if demoscenario.From(ctx) == demoscenario.Error {
 		return nil, domain.ErrInvalidOrder("simulated application error (X-Demo-Scenario: error)")
+	}
+
+	// Call the external pricing service (records external_call_* metrics).
+	// Failures are logged as span events but do not fail the order creation —
+	// pricing is best-effort in this demo.
+	if s.pricer != nil {
+		if pErr := s.pricer.GetPrice(ctx, in.Item); pErr != nil {
+			span.AddEvent("pricing-service-error",
+				trace.WithAttributes(attribute.String("error", pErr.Error())))
+		}
 	}
 
 	newOrder, err := domain.NewOrder(s.ids.NewID(), in.CustomerName, in.Item, in.Quantity, in.AmountCents, time.Now().UTC())

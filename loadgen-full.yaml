@@ -1,0 +1,12 @@
+# nava config for `mage Loadgen:Full` — runs every scenario in one shot:
+#   normal → slow → error → db-fail → list-orders → get-by-id → concurrent burst
+#
+# This populates every panel in the SigNoz Order Service Overview dashboard
+# without having to run individual loadgen targets.
+#
+# Point LOADGEN_BASE_URL at your running service if it differs from the
+# k3d ingress default (http://signoz-demo.127.0.0.1.nip.io).
+directory: "."
+run:
+  main: ./cmd/loadgen
+  args: ["-scenario=full", "-base-url=http://signoz-demo.127.0.0.1.nip.io", "-timeout=15s"]

@@ -4,21 +4,28 @@ kind: Kustomization
 resources:
   - ../../base
 
-# Patch the Ingress host to use nip.io wildcard DNS for local k3d access.
-# The IP (172.21.189.76) is the k3d loadbalancer IP — find it with:
-#   kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
-# or use the IP printed by `mage hosts` in eh-fleets.
+# Image tag pinned to the sha published by CI.
+# For local k3d, the image is pre-imported via docker save + ctr import
+# so imagePullPolicy is set to IfNotPresent to skip the GHCR pull.
+images:
+  - name: ghcr.io/vinaycharlie01/signoz-demo
+    newTag: sha-cb0f96f
+
 patches:
+  # Patch ingress host to nip.io wildcard DNS for local browser access.
   - patch: |-
       - op: replace
         path: /spec/rules/0/host
-        value: signoz-demo.172.21.189.76.nip.io
+        value: signoz-demo.127.0.0.1.nip.io
     target:
       kind: Ingress
       name: signoz-demo
 
-# Image tag is pinned here and updated by the CD workflow via:
-#   kustomize edit set image ghcr.io/vinaycharlie01/signoz-demo=ghcr.io/vinaycharlie01/signoz-demo:sha-<GIT_SHA>
-images:
-  - name: ghcr.io/vinaycharlie01/signoz-demo
-    newTag: latest
+  # Use locally-imported image — skip GHCR pull (avoids TLS issues on corporate networks).
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: IfNotPresent
+    target:
+      kind: Deployment
+      name: signoz-demo

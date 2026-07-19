@@ -17,6 +17,7 @@ import (
 
 	httpadapter "github.com/vinaycharlie01/signoz-demo/internal/adapters/http"
 	"github.com/vinaycharlie01/signoz-demo/internal/adapters/idgen"
+	"github.com/vinaycharlie01/signoz-demo/internal/adapters/pricing"
 	"github.com/vinaycharlie01/signoz-demo/internal/adapters/sqlite"
 	"github.com/vinaycharlie01/signoz-demo/internal/application"
 	"github.com/vinaycharlie01/signoz-demo/pkg/config"
@@ -71,7 +72,8 @@ func run() error {
 	}
 	defer repo.Close()
 
-	service := application.NewOrderService(repo, idgen.UUID{}, metrics)
+	pricingClient := pricing.NewClient("", metrics)
+	service := application.NewOrderService(repo, idgen.UUID{}, metrics, pricingClient)
 	handler := httpadapter.NewHandler(service, logger, repo.Ping)
 	router := httpadapter.NewRouter(handler, logger)
 

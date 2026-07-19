@@ -27,7 +27,7 @@ spec:
       containers:
         - name: api
           image: ghcr.io/vinaycharlie01/signoz-demo:latest
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 8090

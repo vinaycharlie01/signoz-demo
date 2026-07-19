@@ -3,10 +3,11 @@
 # here. Run `mage go:crossBuild` (or `mage docker:build`, which depends on it)
 # before building this image.
 #
-# Base image: alpine:3 — small (~8 MB), ships ca-certificates, no microdnf.
-# Using alpine avoids the UBI9 microdnf/Red Hat CDN SSL issues that appear
-# in air-gapped or corporate proxy environments.
-FROM alpine:3
+# Base image: alpine:latest — always pulls the newest Alpine release so the
+# image ships with the latest security patches.  Using alpine avoids the UBI9
+# microdnf/Red Hat CDN SSL issues that appear in air-gapped or corporate proxy
+# environments.
+FROM alpine:latest
 
 # ca-certificates is needed for any TLS calls the binary makes (e.g. OTLP/TLS).
 # Alpine's apk works without Red Hat CDN so this is reliable everywhere.
