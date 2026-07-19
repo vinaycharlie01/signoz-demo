@@ -10,8 +10,9 @@
 //
 //	go install github.com/magefile/mage@latest
 //	mage -l               # list every target
-//	mage go:build          # build ./cmd/api -> bin/api
-//	mage docker:up         # docker compose up --build -d
+//	mage go:build          # build ./cmd/api -> bin/api (local dev binary)
+//	mage go:crossBuild     # build ./cmd/api -> dist/linux_{amd64,arm64}/api (for Docker)
+//	mage docker:up         # cross-builds, then docker compose up --build -d
 //	mage loadgen:normal    # send 20 healthy requests
 package main
 
@@ -47,20 +48,49 @@ func (Go) Test() error { return gomagex.Test() }
 // Vet runs `go vet ./...`.
 func (Go) Vet() error { return gomagex.Vet() }
 
+// CrossBuild cross-compiles cmd/api for linux/amd64 and linux/arm64 into
+// dist/<os>_<arch>/api, per go.yaml's crossBuild section — this is what
+// Dockerfile's `COPY dist/linux_${TARGETARCH}/api` expects to find. Same
+// convention as this org's other Go CLIs (e.g. sh-mcp-go).
+func (Go) CrossBuild() error { return gomagex.CrossBuild() }
+
 // Docker namespace: the local SigNoz-backend + app stack (docker-compose.yml).
 type Docker mg.Namespace
 
 // Up builds and starts ClickHouse + the SigNoz OTel Collector + the app,
 // detached. See docker-compose.yml's header comment for what it does and
 // does not provision (the SigNoz app/UI itself is installed separately via
-// Foundry — see README.md).
-func (Docker) Up() error { return dockermagex.ComposeUp() }
+// Foundry — see README.md). Depends on Go.CrossBuild so the Dockerfile's
+// prebuilt-binary COPY always has a fresh dist/linux_<arch>/api to copy.
+func (Docker) Up() error {
+	mg.Deps(Go.CrossBuild)
+	return dockermagex.ComposeUp()
+}
 
 // Down stops and removes the stack's containers (data volumes are kept).
 func (Docker) Down() error { return dockermagex.ComposeDown() }
 
-// Build rebuilds the app image without starting anything.
-func (Docker) Build() error { return dockermagex.ComposeBuild() }
+// Build rebuilds the app image without starting anything. Depends on
+// Go.CrossBuild — see Up.
+func (Docker) Build() error {
+	mg.Deps(Go.CrossBuild)
+	return dockermagex.ComposeBuild()
+}
+
+// BuildxBuild builds the multi-arch (linux/amd64, linux/arm64) publishable
+// image (config: docker.yaml -> buildxBuild), same pattern as sh-mcp-go.
+// Depends on Go.CrossBuild for the same reason Up/Build do.
+func (Docker) BuildxBuild() error {
+	mg.Deps(Go.CrossBuild)
+	return dockermagex.BuildxBuild()
+}
+
+// Push pushes the image built by BuildxBuild to the registry (config:
+// docker.yaml -> push).
+func (Docker) Push() error { return dockermagex.Push() }
+
+// Login logs in to the container registry (config: docker.yaml -> login).
+func (Docker) Login() error { return dockermagex.Login() }
 
 // Loadgen namespace: cmd/loadgen scenarios, each driven by its own
 // loadgen-*.yaml — see Phase 5 of the project spec ("Generate Interesting

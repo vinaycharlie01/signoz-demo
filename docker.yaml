@@ -6,3 +6,28 @@ compose:
   build: true
   detach: true
   remove: true
+
+# Multi-arch image build/publish, mirroring vinaycharlie01/sh-mcp-go's
+# docker.yaml. Requires dist/linux_{amd64,arm64}/api to already exist
+# (`mage go:crossBuild`) — Dockerfile copies the prebuilt binary, it does
+# not compile it. `push: false` by default; flip it (or override at the
+# CLI) once you actually want to publish.
+buildxBuild:
+  context: .
+  dockerfile: Dockerfile
+  tags:
+    - ghcr.io/vinaycharlie01/signoz-demo:latest
+  platforms:
+    - linux/amd64
+    - linux/arm64
+  push: false
+  noCache: false
+
+push:
+  image: ghcr.io/vinaycharlie01/signoz-demo:latest
+  allTags: false
+
+login:
+  registry: ghcr.io
+  username: vinaycharlie01
+  passwordStdin: true

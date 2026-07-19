@@ -13,6 +13,21 @@ build:
   main: ./cmd/api
   noCGO: true
 
+# Cross-compiles the runtime image's binary into dist/<os>_<arch>/api —
+# the exact layout Dockerfile's `COPY dist/linux_${TARGETARCH}/api` expects.
+# Mirrors the convention used by this org's other Go CLIs (e.g. sh-mcp-go's
+# go.yaml -> crossBuild), so `mage go:crossBuild` must run before
+# `mage docker:build`/`docker:up` — magefile.go wires that dependency.
+crossBuild:
+  main: ./cmd/api
+  binary: api
+  outputDir: dist
+  platforms:
+    - os: linux
+      arch: amd64
+    - os: linux
+      arch: arm64
+
 run:
   main: ./cmd/api
 

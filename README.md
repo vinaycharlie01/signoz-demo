@@ -135,10 +135,18 @@ mage go:setup                                 # go mod download && go mod tidy
 
 ## Running the stack
 
+`Dockerfile` is runtime-only — it copies a prebuilt binary rather than
+running `go build` itself, matching the convention this org's other Go
+CLIs use (e.g. `sh-mcp-go`'s Dockerfile: UBI9-minimal base, non-root,
+`COPY dist/linux_${TARGETARCH}/<binary>`). `mage docker:up`/`docker:build`
+depend on `mage go:crossBuild`, which produces
+`dist/linux_{amd64,arm64}/api` automatically — you don't need to run it
+separately.
+
 ### Option A — everything in Docker
 
 ```bash
-mage docker:up      # builds the app image, starts clickhouse + signoz-otel-collector + app
+mage docker:up      # cross-builds the binary, builds the app image, starts clickhouse + signoz-otel-collector + app
 curl http://localhost:8090/health
 mage docker:down    # stop everything (data volumes are kept)
 ```
