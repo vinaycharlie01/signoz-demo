@@ -9,9 +9,14 @@ current architecture (see `docs/signoz-architecture.md`).
 This is a teaching/demo repository, not a template for a real production
 service — see "Simplifications" below for what was intentionally cut.
 
-Also in this repo: [`docs/AI_AGENT_IDEAS_FOR_SIGNOZ.md`](docs/AI_AGENT_IDEAS_FOR_SIGNOZ.md)
-— 1000 brainstorm ideas for AI agents that integrate with SigNoz, for the
-**Agents of SigNoz** hackathon.
+Also in this repo:
+
+- [`docs/AI_AGENT_IDEAS_FOR_SIGNOZ.md`](docs/AI_AGENT_IDEAS_FOR_SIGNOZ.md) —
+  1000 brainstorm ideas for AI agents that integrate with SigNoz, for the
+  **Agents of SigNoz** hackathon.
+- [`docs/PRIORITY_AGENTS_FOR_K0S_SIGNOZ_CLI.md`](docs/PRIORITY_AGENTS_FOR_K0S_SIGNOZ_CLI.md) —
+  a narrow, prioritized shortlist of which agents to actually build first,
+  scoped to a Golang CLI that deploys SigNoz on top of k0s with one command.
 
 ## Project overview
 
