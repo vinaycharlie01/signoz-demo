@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+# Patch the Ingress host to use nip.io wildcard DNS for local k3d access.
+# The IP (172.21.189.76) is the k3d loadbalancer IP — find it with:
+#   kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+# or use the IP printed by `mage hosts` in eh-fleets.
+patches:
+  - patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: signoz-demo.172.21.189.76.nip.io
+    target:
+      kind: Ingress
+      name: signoz-demo
+
+# Image tag is pinned here and updated by the CD workflow via:
+#   kustomize edit set image ghcr.io/vinaycharlie01/signoz-demo=ghcr.io/vinaycharlie01/signoz-demo:sha-<GIT_SHA>
+images:
+  - name: ghcr.io/vinaycharlie01/signoz-demo
+    newTag: latest

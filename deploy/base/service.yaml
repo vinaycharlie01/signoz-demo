@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: signoz-demo
+  namespace: signoz-demo
+  labels:
+    app.kubernetes.io/name: signoz-demo
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: signoz-demo
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: signoz-demo
+    app.kubernetes.io/component: api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: signoz-demo
+  namespace: signoz-demo
+  labels:
+    app.kubernetes.io/name: signoz-demo
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: signoz-demo
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: signoz-demo.example.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: signoz-demo
+                port:
+                  name: http

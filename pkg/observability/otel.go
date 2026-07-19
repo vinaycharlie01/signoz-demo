@@ -57,7 +57,10 @@ func Setup(ctx context.Context, cfg Config) (*SDK, error) {
 		),
 		resource.WithFromEnv(),
 		resource.WithHost(),
-		resource.WithProcess(),
+		// resource.WithProcess() is intentionally omitted: it calls
+		// os/user.Current() which requires cgo (not available in our
+		// CGO_DISABLED=1 build) or $USER set in the container environment.
+		// Service identity is already fully covered by the attributes above.
 	)
 	if err != nil {
 		return nil, fmt.Errorf("build otel resource: %w", err)

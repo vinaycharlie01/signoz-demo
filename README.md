@@ -2,32 +2,43 @@
 
 A small, production-shaped Golang **Order Service**, built with **Hexagonal
 Architecture** (Ports & Adapters), instrumented end-to-end with
-**OpenTelemetry**, and paired with a self-hosted **SigNoz** telemetry
-backend — built as a hands-on companion project for studying SigNoz's
-current architecture (see `docs/signoz-architecture.md`).
+**OpenTelemetry** (traces, metrics, and logs), and integrated with a
+self-hosted **SigNoz** telemetry backend running via **Foundry**.
 
-This is a teaching/demo repository, not a template for a real production
-service — see "Simplifications" below for what was intentionally cut.
+---
 
-Also in this repo:
+## Table of Contents
 
-- [`docs/AI_AGENT_IDEAS_FOR_SIGNOZ.md`](docs/AI_AGENT_IDEAS_FOR_SIGNOZ.md) —
-  1000 brainstorm ideas for AI agents that integrate with SigNoz, for the
-  **Agents of SigNoz** hackathon.
-- [`docs/PRIORITY_AGENTS_FOR_K0S_SIGNOZ_CLI.md`](docs/PRIORITY_AGENTS_FOR_K0S_SIGNOZ_CLI.md) —
-  a narrow, prioritized shortlist of which agents to actually build first,
-  scoped to a Golang CLI that deploys SigNoz on top of k0s with one command.
+1. [Project overview](#project-overview)
+2. [Architecture](#architecture)
+3. [How it integrates with SigNoz (Foundry)](#how-it-integrates-with-signoz-foundry)
+4. [Prerequisites](#prerequisites)
+5. [Quick start](#quick-start)
+   - [Step 1 — Start SigNoz (Foundry)](#step-1--start-signoz-foundry)
+   - [Step 2 — Start the Order Service](#step-2--start-the-order-service)
+6. [Environment variables](#environment-variables)
+7. [Running locally (without Docker)](#running-locally-without-docker)
+8. [Sending test requests](#sending-test-requests)
+9. [Load generation](#load-generation)
+10. [Viewing telemetry in SigNoz](#viewing-telemetry-in-signoz)
+11. [Troubleshooting](#troubleshooting)
+12. [Cleanup](#cleanup)
+13. [Simplifications](#simplifications-vs-a-real-production-service)
+
+---
 
 ## Project overview
 
 | | |
 | --- | --- |
-| Domain | Orders (`POST`/`GET /api/v1/orders`) |
+| Domain | Orders (`POST` / `GET /api/v1/orders`) |
 | Architecture | Hexagonal — `internal/domain` has zero framework imports |
 | Database | SQLite (`modernc.org/sqlite`, pure Go, no cgo) |
-| Observability | OpenTelemetry traces, metrics, and logs, exported over OTLP/gRPC |
-| Telemetry backend | Self-hosted SigNoz (ClickHouse + signoz-otel-collector + SigNoz app via Foundry) |
-| Build tooling | [Mage](https://magefile.org/) + [nava](https://github.com/nirantaraai/nava) — **no Makefile, no shell scripts** |
+| Observability | OpenTelemetry SDK — **traces + metrics + logs**, exported over OTLP/gRPC |
+| Telemetry backend | Self-hosted **SigNoz** via [Foundry](https://signoz.io/docs/install/docker/) |
+| Build tooling | [Mage](https://magefile.org/) — no Makefile, no shell scripts |
+
+---
 
 ## Architecture
 
@@ -35,13 +46,13 @@ Also in this repo:
 Client
   │  HTTP :8090
   ▼
-internal/adapters/http   (driving adapter — net/http + otelhttp)
+internal/adapters/http      (driving adapter — net/http + otelhttp)
   │  ports.OrderService
   ▼
-internal/application     (use cases — OrderService)
+internal/application        (use cases — OrderService)
   │  ports.OrderRepository
   ▼
-internal/adapters/sqlite (driven adapter — database/sql + modernc.org/sqlite)
+internal/adapters/sqlite    (driven adapter — database/sql + modernc.org/sqlite)
   │
   ▼
 SQLite (orders.db)
@@ -50,222 +61,296 @@ SQLite (orders.db)
 `internal/domain` sits behind both ports and imports neither `net/http`,
 `database/sql`, nor OpenTelemetry.
 
-**Start here for the full SigNoz architecture**: [`docs/FULL_ARCHITECTURE.md`](docs/FULL_ARCHITECTURE.md)
-is the single-document version — directory map, all five diagrams, and the
-complete component-by-component breakdown in one place. The same material
-also exists split across [`docs/signoz-architecture.md`](docs/signoz-architecture.md)
-and the individual diagram files below, if you want the narrower version of
-one piece.
+### Telemetry signal flow
 
-All five Mermaid diagrams (standalone files):
+```
+Order Service (Go)
+  │
+  │  OTLP/gRPC  :4317   (traces + metrics + logs — single endpoint)
+  ▼
+SigNoz ingester (signoz-otel-collector)   ← runs inside Foundry
+  │
+  ├─ traces   → ClickHouse (signoz_traces)
+  ├─ metrics  → ClickHouse (signoz_metrics / signoz_meter)
+  └─ logs     → ClickHouse (signoz_logs)
+                    │
+                    ▼
+             SigNoz UI  :8080
+```
 
-- [`docs/diagrams/01-high-level-architecture.md`](docs/diagrams/01-high-level-architecture.md)
-- [`docs/diagrams/02-telemetry-ingestion-pipeline.md`](docs/diagrams/02-telemetry-ingestion-pipeline.md)
-- [`docs/diagrams/03-trace-request-flow.md`](docs/diagrams/03-trace-request-flow.md)
-- [`docs/diagrams/04-signoz-internal-components.md`](docs/diagrams/04-signoz-internal-components.md)
-- [`docs/diagrams/05-local-development-architecture.md`](docs/diagrams/05-local-development-architecture.md)
+All three signals share a **single OTLP/gRPC endpoint** (`signoz-ingester:4317`
+inside `signoz-network`).  No separate endpoints, no per-signal configuration
+needed.
+
+---
+
+## How it integrates with SigNoz (Foundry)
+
+SigNoz is installed via **Foundry** (the modern installation method — the old
+`docker compose up` in the SigNoz repo itself is deprecated).  Foundry starts:
+
+| Component | Role |
+| --- | --- |
+| `signoz-telemetrystore-clickhouse-0-0` | Telemetry storage (traces, metrics, logs) |
+| `signoz-telemetrykeeper-clickhousekeeper-0` | ClickHouse coordination |
+| `signoz-telemetrystore-migrator` | Schema bootstrap/migrations |
+| `ingester` (alias: `signoz-ingester`) | OTLP receiver → ClickHouse writer |
+| `signoz-metastore-postgres-0` | SigNoz metadata (users, dashboards, alerts) |
+| `signoz-signoz-0` | SigNoz API + UI (`:8080`) |
+
+All of these run on a Docker network called **`signoz-network`**.
+
+This demo's `docker-compose.yml` **only starts the Order Service app** and
+attaches it to the already-running `signoz-network`.  The app sends all
+telemetry to `signoz-ingester:4317` — the ingester that Foundry manages.
+
+> **Why not bundle ClickHouse + the collector here?**  
+> The Foundry stack already owns ClickHouse, the schema migrations, and the
+> collector.  Duplicating them would create two independent ClickHouse instances
+> (one for SigNoz, one for the demo) and the SigNoz UI would never see the
+> demo's data.  Joining `signoz-network` is the correct, zero-duplication way
+> to integrate.
+
+---
 
 ## Prerequisites
 
-- Go 1.24+
-- Docker + Docker Compose (for ClickHouse + the SigNoz OTel Collector)
-- [Mage](https://magefile.org/): `go install github.com/magefile/mage@latest`
-  (make sure `$(go env GOPATH)/bin` is on your `PATH`)
-- **SigNoz itself** (the querier/API/UI), installed separately via
-  [Foundry](https://signoz.io/docs/install/docker/) — see "SigNoz setup"
-  below for why this isn't bundled into `docker-compose.yml`.
+| Tool | Version | Purpose |
+| --- | --- | --- |
+| Go | 1.24+ | Build the service |
+| Docker + Docker Compose | v2.x | Run everything |
+| [Mage](https://magefile.org/) | latest | Build targets |
 
-There is no Makefile in this repo. Every command below is a Mage target;
-run `mage -l` at any time to see the full list.
-
-## SigNoz setup
-
-**Important, hands-on finding**: the classic "clone signoz, `docker compose
-up` a root compose file" method you may know from older tutorials is
-**deprecated**. SigNoz's own `deploy/install.sh` now just prints a
-deprecation notice pointing at Foundry. See
-`docs/signoz-architecture.md` §2.10 for the full story.
-
-This repo's `docker-compose.yml` provisions the telemetry **backend**
-(ClickHouse + the signoz-otel-collector) that our app sends data to. To get
-the actual SigNoz UI on top of that data:
-
-1. Install SigNoz via [Foundry](https://signoz.io/docs/install/docker/),
-   following the current instructions for your platform.
-2. Point it at the same ClickHouse this repo starts
-   (`tcp://localhost:9000` once `mage docker:up` has run) instead of
-   letting it create its own.
-3. Open the SigNoz UI (default `http://localhost:8080`, per
-   `conf/example.yaml`'s `global.external_url` in the SigNoz repo) once it's
-   up.
-
-If you'd rather not install Foundry, you can instead clone
-[`SigNoz/signoz`](https://github.com/SigNoz/signoz) and run the backend
-natively against the same ClickHouse, exactly like SigNoz's own
-`.devenv/docker/` contributor workflow does:
+Install Mage once:
 
 ```bash
-git clone https://github.com/SigNoz/signoz
-cd signoz
-go run ./cmd/community server --config conf/example.yaml
-# ensure sqlstore/telemetrystore config in your local conf points at
-# tcp://localhost:9000 (the ClickHouse this repo's docker-compose.yml starts)
+go install github.com/magefile/mage@latest
+# make sure $(go env GOPATH)/bin is on PATH
 ```
 
-## Application setup
+---
+
+## Quick start
+
+### Step 1 — Start SigNoz (Foundry)
+
+From the **foundry repo root** (one directory above this one):
 
 ```bash
-git clone <this-repo-url> signoz-demo
-cd signoz-demo
-go install github.com/magefile/mage@latest   # once, if you don't have mage
-mage go:setup                                 # go mod download && go mod tidy
+cd /path/to/foundry
+docker compose -f pours/deployment/compose.yaml up -d
 ```
 
-### Environment variables
+Wait until SigNoz is healthy (usually ~60 seconds):
+
+```bash
+docker compose -f pours/deployment/compose.yaml ps
+# signoz-signoz-0 should show "healthy"
+```
+
+Open the SigNoz UI: **http://localhost:8080**
+
+> **First-time setup**: SigNoz will prompt you to create an admin account on
+> the first visit.
+
+### Step 2 — Start the Order Service
+
+```bash
+# from signoz-demo/
+mage docker:up
+```
+
+This will:
+1. Cross-compile the Go binary for Linux (`dist/linux_{amd64,arm64}/api`)
+2. Build the Docker image
+3. Start the `app` container joined to `signoz-network`
+
+Verify the app is up:
+
+```bash
+curl http://localhost:8090/health
+# → {"status":"ok"}
+```
+
+---
+
+## Environment variables
+
+All variables have sensible defaults for the Docker Compose setup.  Override
+them if needed (e.g. for a different ingester address in a remote deployment).
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `HTTP_ADDR` | `:8090` | Address the API listens on |
+| `HTTP_ADDR` | `:8090` | Address the HTTP API listens on |
 | `DB_PATH` | `./data/orders.db` | SQLite file path |
-| `OTEL_SERVICE_NAME` | `signoz-demo-order-service` | `service.name` resource attribute |
+| `OTEL_SERVICE_NAME` | `signoz-demo-order-service` | `service.name` resource attribute — how the service appears in SigNoz |
 | `SERVICE_VERSION` | `0.1.0` | `service.version` resource attribute |
 | `DEPLOYMENT_ENVIRONMENT` | `local` | `deployment.environment.name` resource attribute |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | OTLP/gRPC endpoint (traces, metrics, and logs) |
-| `OTEL_EXPORTER_OTLP_INSECURE` | `true` | Skip TLS for the OTLP connection (local dev only) |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | OTLP/gRPC endpoint for **all three signals** (traces, metrics, logs) |
+| `OTEL_EXPORTER_OTLP_INSECURE` | `true` | Skip TLS — fine for local dev; never set in production |
 
-## Running the stack
+In the Docker Compose stack, `OTEL_EXPORTER_OTLP_ENDPOINT` is set to
+`signoz-ingester:4317` (the ingester's in-network alias).  When running the
+app on the host directly, use `localhost:4317`.
 
-`Dockerfile` is runtime-only — it copies a prebuilt binary rather than
-running `go build` itself, matching the convention this org's other Go
-CLIs use (e.g. `sh-mcp-go`'s Dockerfile: UBI9-minimal base, non-root,
-`COPY dist/linux_${TARGETARCH}/<binary>`). `mage docker:up`/`docker:build`
-depend on `mage go:crossBuild`, which produces
-`dist/linux_{amd64,arm64}/api` automatically — you don't need to run it
-separately.
+---
 
-### Option A — everything in Docker
+## Running locally (without Docker)
 
-```bash
-mage docker:up      # cross-builds the binary, builds the app image, starts clickhouse + signoz-otel-collector + app
-curl http://localhost:8090/health
-mage docker:down    # stop everything (data volumes are kept)
-```
-
-### Option B — app on the host, backend in Docker
+If you want to run the Go binary directly on your host (while SigNoz still runs
+in Docker):
 
 ```bash
-mage docker:up                        # just clickhouse + signoz-otel-collector, if you edit docker-compose.yml to drop `app`
-OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317 mage go:run
+# 1. Ensure Foundry is running (Step 1 above)
+
+# 2. Build and run the service
+OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317 \
+OTEL_EXPORTER_OTLP_INSECURE=true \
+mage go:run
 ```
+
+The Foundry ingester binds ports `4317` and `4318` to the host loopback, so
+`localhost:4317` works from outside Docker.
+
+---
 
 ## Sending test requests
 
 ```bash
-curl -X POST http://localhost:8090/api/v1/orders \
+# Create an order
+curl -s -X POST http://localhost:8090/api/v1/orders \
   -H 'Content-Type: application/json' \
-  -d '{"customer_name":"Alice","item":"widget","quantity":2,"amount_cents":1999}'
+  -d '{"customer_name":"Alice","item":"widget","quantity":2,"amount_cents":1999}' | jq
 
-curl http://localhost:8090/api/v1/orders
-curl http://localhost:8090/api/v1/orders/<id-from-above>
+# List all orders
+curl -s http://localhost:8090/api/v1/orders | jq
+
+# Get a specific order (replace <id> with the id returned above)
+curl -s http://localhost:8090/api/v1/orders/<id> | jq
+
+# Health / readiness
 curl http://localhost:8090/health
 curl http://localhost:8090/ready
 ```
 
-## Generating load / slow requests / errors
+---
 
-`cmd/loadgen` is this project's replacement for the usual `make load*`
-shell scripts — a small Go program, wired into Mage via `loadgen-*.yaml`:
+## Load generation
+
+`cmd/loadgen` is a small Go program that drives the API with realistic traffic
+patterns, wired into Mage via the `loadgen-*.yaml` files:
 
 ```bash
 mage loadgen:normal       # 20 healthy sequential requests
-mage loadgen:slow         # requests that hit the injected ~1.8s SQLite latency
-mage loadgen:errors       # a mix of use-case-level and repository-level failures
+mage loadgen:slow         # requests that hit the injected ~1.8 s SQLite latency
+mage loadgen:errors       # mix of use-case-level and repository-level failures
 mage loadgen:concurrent   # 60 requests, 10 concurrent workers, mixed scenarios
 ```
 
-Under the hood these set the `X-Demo-Scenario` header
-(`slow` / `error` / `db-fail`) — see `internal/demoscenario` and
-`docs/diagrams/03-trace-request-flow.md` for exactly where each one takes
-effect. You can also trigger a single one manually:
+Each target sets the `X-Demo-Scenario` header (`slow` / `error` / `db-fail`).
+You can also trigger a scenario manually:
 
 ```bash
-curl -X POST http://localhost:8090/api/v1/orders \
-  -H 'Content-Type: application/json' -H 'X-Demo-Scenario: slow' \
+curl -s -X POST http://localhost:8090/api/v1/orders \
+  -H 'Content-Type: application/json' \
+  -H 'X-Demo-Scenario: slow' \
   -d '{"customer_name":"Bob","item":"gadget","quantity":1,"amount_cents":999}'
 ```
 
-## Viewing traces in SigNoz
+---
 
-1. Open the SigNoz UI → **Services** → `signoz-demo-order-service`.
-2. Click into **Traces** and filter by `http.route=POST /api/v1/orders`.
-3. Open a slow trace (run `mage loadgen:slow` first) and inspect the
-   waterfall — you should see `POST /api/v1/orders` → `OrderService.CreateOrder`
-   → `sqlite.INSERT orders`, with almost all the extra latency on the last
-   span. This is the debugging story walked through in
-   `docs/blog/debugging-slow-golang-api-with-signoz.md`.
+## Viewing telemetry in SigNoz
 
-## Viewing metrics
+### Traces
 
-- **Services** overview shows p50/p90/p99 latency, request rate, and error
-  rate — derived by the collector's `signozspanmetrics` processor directly
-  from spans, no extra code needed.
-- Custom metrics (Dashboards → New Panel → Metrics, or Query Builder):
+1. Open **http://localhost:8080** → **Services** → `signoz-demo-order-service`
+2. Click **Traces** → filter by `http.route = POST /api/v1/orders`
+3. Run `mage loadgen:slow` and open a slow trace — you'll see:
+   `POST /api/v1/orders` → `OrderService.CreateOrder` → `sqlite.INSERT orders`
+   with almost all latency on the last span.
+
+### Metrics
+
+- **Services** overview shows p50/p90/p99 latency, RPS, and error rate
+  (derived from spans by the collector's `signozspanmetrics` processor).
+- Custom application metrics (Dashboards → New Panel → Metrics):
   - `orders_created_total`
   - `order_create_duration_seconds`
   - `db_operation_duration_seconds` (filter by `db.operation`)
   - `order_errors_total`
 
-## Viewing logs
+### Logs
 
-Logs Explorer → filter `service.name = signoz-demo-order-service`. Every
-request logs one structured `http request` line; failures also log an
+**Logs Explorer** → filter `service.name = signoz-demo-order-service`.  
+Every request logs one structured `http request` line; failures also log an
 `unhandled service error` line.
 
-## Trace/log correlation
+### Trace ↔ Log correlation
 
-Every log record written while a span is active gets `trace_id`/`span_id`
-attributes attached — see `pkg/observability/logger.go`'s
-`traceContextHandler` for the stdout copy, and the `otelslog` bridge for the
-OTLP-exported copy (same context, same IDs). In the SigNoz UI, open a trace
-and use "Related logs" (or search Logs Explorer by that `trace_id`) to jump
-straight to the log lines from that exact request — and vice versa from a
-log line back to its trace.
+Every log record emitted while a span is active automatically carries
+`trace_id` and `span_id` attributes (see `pkg/observability/logger.go`'s
+`traceContextHandler`).  In the SigNoz UI:
+- Open a trace → **Related logs** → jump straight to that request's log lines.
+- Open a log line → click the `trace_id` value → jump to the trace.
+
+---
 
 ## Troubleshooting
 
-- **`mage: command not found`** — `go install github.com/magefile/mage@latest`
-  and make sure `$(go env GOPATH)/bin` is on `PATH`.
-- **App starts but nothing shows up in SigNoz** — check
-  `OTEL_EXPORTER_OTLP_ENDPOINT` actually points at a reachable collector;
-  the app itself never fails to start if the collector is unreachable (the
-  OTLP exporter buffers/retries in the background), so a wrong endpoint
-  fails silently unless you check the collector's own logs
-  (`docker compose logs signoz-otel-collector`).
-- **`signoz-otel-collector` container keeps restarting** — it runs
-  `migrate sync check` before serving traffic; if ClickHouse isn't healthy
-  yet or the `otel-collector-migrator` service hasn't completed, it will
-  fail and retry. `docker compose logs otel-collector-migrator` first.
-- **No SigNoz UI at `:8080`** — that's expected; this repo's
-  `docker-compose.yml` only starts the telemetry backend, not the SigNoz
-  app itself. See "SigNoz setup" above.
+| Symptom | Likely cause & fix |
+| --- | --- |
+| `docker compose up` fails with `network signoz-network not found` | Foundry isn't running yet. Run `docker compose -f pours/deployment/compose.yaml up -d` from the foundry root first. |
+| App starts but nothing appears in SigNoz | Check `OTEL_EXPORTER_OTLP_ENDPOINT`. The OTel SDK buffers and retries silently if the endpoint is wrong. Check app logs: `docker compose logs app`. |
+| SigNoz UI shows no service after sending requests | The ingester may still be starting. Wait ~30 s and resend a request. Check ingester logs: `docker compose -f pours/deployment/compose.yaml logs ingester`. |
+| `mage: command not found` | Run `go install github.com/magefile/mage@latest` and ensure `$(go env GOPATH)/bin` is on `PATH`. |
+| `curl: (7) Failed to connect to localhost port 8090` | The app container isn't up. Check `docker compose ps` and `docker compose logs app`. |
+| SigNoz UI not reachable at `:8080` | Check Foundry: `docker compose -f pours/deployment/compose.yaml ps signoz-signoz-0`. It may still be doing its 60 s startup health check. |
+
+---
 
 ## Cleanup
 
 ```bash
-mage docker:down                 # stop containers
-docker volume rm signoz-demo_clickhouse-data signoz-demo_app-data  # wipe all data
-rm -rf data/ bin/                # local (non-Docker) run artifacts
+# Stop the Order Service
+docker compose down
+
+# Wipe the app's SQLite data volume
+docker volume rm signoz-demo_app-data
+
+# Stop SigNoz (Foundry) — run from the foundry root
+docker compose -f pours/deployment/compose.yaml down
+
+# Wipe SigNoz data volumes (destructive — removes all traces/metrics/logs)
+docker volume rm signoz-metastore-postgres-0-data \
+                 signoz-telemetrykeeper-0-data \
+                 signoz-telemetrystore-0-0-data \
+                 signoz-telemetrystore-user-scripts
+
+# Local (non-Docker) build artefacts
+rm -rf dist/ data/
 ```
+
+---
 
 ## Simplifications (vs. a real production service)
 
-- Single SQLite file, no connection pool tuning, no read replicas.
-- No authentication/authorization on the API.
+- Single SQLite file — no connection pool tuning, no read replicas.
+- No authentication or authorization on the HTTP API.
 - No pagination on `GET /api/v1/orders`.
-- Single-node, non-replicated ClickHouse (no Zookeeper) — see
-  `otel-collector-config.yaml`'s header comment.
-- `cmd/loadgen` is a demo tool, not a load-testing framework — no ramp-up,
-  no percentile reporting beyond what SigNoz itself shows you.
+- `cmd/loadgen` is a demo driver, not a load-testing framework — no ramp-up,
+  no percentile reporting beyond what SigNoz shows.
+- TLS is disabled for OTLP (`OTEL_EXPORTER_OTLP_INSECURE=true`) — always use
+  TLS in production.
 
-See `docs/signoz-architecture.md` for the full breakdown of what's verified
-from SigNoz's source vs. what's a deliberate simplification in this repo.
+---
+
+## Further reading
+
+- [`docs/FULL_ARCHITECTURE.md`](docs/FULL_ARCHITECTURE.md) — full SigNoz
+  architecture breakdown, all five Mermaid diagrams in one place.
+- [`docs/signoz-architecture.md`](docs/signoz-architecture.md) — detailed
+  component-by-component breakdown.
+- [`docs/AI_AGENT_IDEAS_FOR_SIGNOZ.md`](docs/AI_AGENT_IDEAS_FOR_SIGNOZ.md) —
+  brainstorm ideas for AI agents integrating with SigNoz.
+- [`docs/PRIORITY_AGENTS_FOR_K0S_SIGNOZ_CLI.md`](docs/PRIORITY_AGENTS_FOR_K0S_SIGNOZ_CLI.md) —
+  prioritized shortlist of agents to build with a Golang CLI + k0s.
