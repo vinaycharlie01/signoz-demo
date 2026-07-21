@@ -4,7 +4,7 @@
 // this project needs is a Mage target, built on nirantaraai/nava's typed
 // runners (github.com/nirantaraai/nava) — the same tool this org's other
 // repos (e.g. nirantaraai/nava itself) use for build automation. Options
-// live in go.yaml / docker.yaml / loadgen-*.yaml, not hardcoded in Go.
+// live in go.yaml / docker.yaml / loadgen/*.yaml, not hardcoded in Go.
 //
 // Usage:
 //
@@ -35,7 +35,7 @@ const k3dConfigPath = "self-hosted/k3d.yaml"
 func init() {
 	_ = gomagex.LoadConfig("go.yaml")
 	_ = dockermagex.LoadConfig("docker.yaml")
-	// k3d/sops config is only needed for cluster:*, helm:*, gitops:*, sops:* and deploy:* targets.
+	// k3d/sops config is only needed for cluster:*, helm:*, sops:* and deploy:* targets.
 	// Silently skip if the file is missing so Go/Docker/Loadgen targets still work without
 	// the self-hosted/ directory being present.
 	_ = k3dmagex.LoadConfig(k3dConfigPath)
@@ -105,28 +105,28 @@ func (Docker) Push() error { return dockermagex.Push() }
 func (Docker) Login() error { return dockermagex.Login() }
 
 // Loadgen namespace: cmd/loadgen scenarios, each driven by its own
-// loadgen-*.yaml — see Phase 5 of the project spec ("Generate Interesting
+// loadgen/*.yaml — see Phase 5 of the project spec ("Generate Interesting
 // Production Scenarios"). Run `mage docker:up` (or `mage go:run` locally)
 // first so there's a service listening.
 type Loadgen mg.Namespace
 
 // Normal sends 20 sequential, healthy requests.
-func (Loadgen) Normal() error { return runLoadgen("loadgen-normal.yaml") }
+func (Loadgen) Normal() error { return runLoadgen("loadgen/loadgen-normal.yaml") }
 
 // Slow sends requests that hit the injected SQLite latency.
-func (Loadgen) Slow() error { return runLoadgen("loadgen-slow.yaml") }
+func (Loadgen) Slow() error { return runLoadgen("loadgen/loadgen-slow.yaml") }
 
 // Errors sends a mix of use-case and repository-level simulated failures.
-func (Loadgen) Errors() error { return runLoadgen("loadgen-errors.yaml") }
+func (Loadgen) Errors() error { return runLoadgen("loadgen/loadgen-errors.yaml") }
 
 // Concurrent sends a 10-worker burst of mixed traffic.
-func (Loadgen) Concurrent() error { return runLoadgen("loadgen-concurrent.yaml") }
+func (Loadgen) Concurrent() error { return runLoadgen("loadgen/loadgen-concurrent.yaml") }
 
 // Full runs every scenario in one shot (normal → slow → error → db-fail →
 // list-orders → get-by-id → concurrent burst) to populate every panel in the
 // SigNoz Order Service Overview dashboard without having to run each target
 // individually. Equivalent to running all other Loadgen targets back-to-back.
-func (Loadgen) Full() error { return runLoadgen("loadgen-full.yaml") }
+func (Loadgen) Full() error { return runLoadgen("loadgen/loadgen-full.yaml") }
 
 func runLoadgen(configPath string) error {
 	runner, err := gomagex.NewRunnerFromYAML(configPath)
@@ -157,7 +157,7 @@ func (Cluster) Up() error { return k3dmagex.Up() }
 // Down tears down the cluster.
 func (Cluster) Down() error { return k3dmagex.Down() }
 
-// Status shows pods, PVCs, ingresses, and ArgoCD applications.
+// Status shows pods, PVCs, and ingresses.
 func (Cluster) Status() error { return k3dmagex.Status() }
 
 // Hosts prints access URLs for all services.
@@ -167,9 +167,6 @@ func (Cluster) Hosts() error {
 	fmt.Println("SigNoz UI:      http://signoz.127.0.0.1.nip.io")
 	fmt.Println("Order Service:  http://signoz-demo.127.0.0.1.nip.io")
 	fmt.Println()
-	fmt.Println("(optional — if installed)")
-	fmt.Println("Grafana:        http://grafana.127.0.0.1.nip.io")
-	fmt.Println("ArgoCD:         http://argocd.127.0.0.1.nip.io")
 	return nil
 }
 
@@ -179,17 +176,8 @@ type Helm mg.Namespace
 // Repos adds and updates all required Helm repositories.
 func (Helm) Repos() error { return k3dmagex.HelmRepos() }
 
-// InstallGrafana installs Grafana via Helm.
-func (Helm) InstallGrafana() error { return k3dmagex.InstallRelease("grafana") }
-
 // InstallIngressNginx installs ingress-nginx via Helm.
 func (Helm) InstallIngressNginx() error { return k3dmagex.InstallRelease("ingress-nginx") }
-
-// InstallArgoCD installs ArgoCD via Helm.
-func (Helm) InstallArgoCD() error { return k3dmagex.InstallArgoCD() }
-
-// CreateRepoSecret creates ArgoCD secret for private git repo access.
-func (Helm) CreateRepoSecret() error { return k3dmagex.CreateRepoSecret() }
 
 // InstallSignoz installs SigNoz into the cluster via the official SigNoz Helm
 // chart (https://charts.signoz.io).
@@ -263,30 +251,6 @@ func (Helm) UninstallK8sInfra() error {
 		return err
 	}
 	return h.Uninstall()
-}
-
-// Gitops namespace: ArgoCD GitOps workflow for the self-hosted SigNoz stack.
-type Gitops mg.Namespace
-
-// Apply applies the ArgoCD app-of-apps.
-func (Gitops) Apply() error { return k3dmagex.ApplyAppOfApps() }
-
-// Bootstrap creates cluster, installs ArgoCD, applies app-of-apps.
-func (Gitops) Bootstrap() error { return k3dmagex.GitopsBootstrap() }
-
-// PatchPrune patches ArgoCD applications to enable pruning.
-func (Gitops) PatchPrune() error {
-	names, err := k3dmagex.ApplicationsToPrune()
-	if err != nil {
-		return err
-	}
-	patch := `{"operation":{"sync":{"prune":true}}}`
-	for _, name := range names {
-		if err := k3dmagex.PatchApplication(name, "merge", patch); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // Sops namespace: SOPS/age secret management for the self-hosted stack.

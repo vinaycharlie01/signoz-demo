@@ -60,7 +60,7 @@ func newTestService(t *testing.T, repo ports.OrderRepository, id string) *applic
 	if err != nil {
 		t.Fatalf("NewMetrics: %v", err)
 	}
-	return application.NewOrderService(repo, fixedID{id: id}, metrics)
+	return application.NewOrderService(repo, fixedID{id: id}, metrics, nil)
 }
 
 func TestCreateOrder_Success(t *testing.T) {

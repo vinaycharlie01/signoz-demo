@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/google/uuid v1.6.0
 	github.com/magefile/mage v1.17.2
-	github.com/nirantaraai/nava v0.0.0-20260627175157-a13fb04023e4
+	github.com/nirantaraai/nava v0.0.0-20260721164349-0bb1adc38fda
 	go.opentelemetry.io/contrib/bridges/otelslog v0.19.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.69.0
 	go.opentelemetry.io/otel v1.44.0
@@ -48,4 +48,4 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 )
 
-replace github.com/nirantaraai/nava => ../nava
+// replace github.com/nirantaraai/nava => ../nava
