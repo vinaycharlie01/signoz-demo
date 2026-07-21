@@ -226,6 +226,18 @@ func (Helm) UninstallSignoz() error {
 	return runHelm("uninstall", "signoz", "--namespace", "signoz")
 }
 
+// ApplySignozIngress applies the standalone Ingress manifest that exposes the
+// SigNoz UI at http://signoz.127.0.0.1.nip.io via ingress-nginx.
+//
+// Run after `mage helm:installSignoz` — ingress-nginx must be ready first.
+// This is a separate step because the Ingress lives outside the Helm chart and
+// must be kubectl-applied rather than Helm-managed.
+func (Helm) ApplySignozIngress() error {
+	ingressFile := "self-hosted/apps/local/signoz/ingress.yaml"
+	fmt.Printf("Applying SigNoz ingress manifest: %s\n", ingressFile)
+	return runKubectl("apply", "-f", ingressFile)
+}
+
 // InstallK8sInfra installs the SigNoz k8s-infra Helm chart, which deploys an
 // OpenTelemetry Collector DaemonSet that collects pod logs, host metrics,
 // kubelet metrics, cluster metrics, and Kubernetes events — forwarding them

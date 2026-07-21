@@ -1,0 +1,9 @@
+# containerd v2 hosts.toml for ghcr.io
+# skip_verify bypasses TLS certificate validation for corporate/VPN proxy environments.
+# SECURITY NOTE: for local dev/demo only — do NOT use in production.
+
+server = "https://ghcr.io"
+
+[host."https://ghcr.io"]
+  capabilities = ["pull", "resolve"]
+  skip_verify = true

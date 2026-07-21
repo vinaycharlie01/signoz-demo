@@ -1,0 +1,9 @@
+# containerd v2 hosts.toml for docker.io
+# skip_verify bypasses TLS certificate validation for corporate/VPN proxy environments.
+# SECURITY NOTE: for local dev/demo only — do NOT use in production.
+
+server = "https://registry-1.docker.io"
+
+[host."https://registry-1.docker.io"]
+  capabilities = ["pull", "resolve"]
+  skip_verify = true
