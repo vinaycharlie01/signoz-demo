@@ -1,144 +1,29 @@
 # Debugging a Slow Golang Microservice with SigNoz and OpenTelemetry
 
-*Alternative title used for this repo: "I Self-Hosted SigNoz and Traced a
-Golang API from HTTP to SQLite."*
+*How I traced a 2-second API call from HTTP handler to SQLite — and pinpointed the exact layer that caused it.*
 
-## Introduction
+---
 
-A request is slow in production. Your logs tell you something happened.
-Your metrics tell you something is slow. But neither tells you *where the
-time went* — was it the HTTP layer, your business logic, or the database
-call underneath it?
+A request is slow in production.
 
-That question is the whole reason distributed tracing exists, and it's the
-question this project set out to answer hands-on: take a small, real Golang
-service, instrument it properly with OpenTelemetry, deliberately introduce
-a performance problem, and use a self-hosted SigNoz instance to find it —
-not by reading about tracing, but by watching one specific request move
-through HTTP → a use case → SQLite, and seeing exactly which span ate the
-time.
+Your logs say it happened. Your metrics say the p99 spiked. But neither tells you *where the time went* — was it the HTTP layer, your business logic, or the database call underneath it?
 
-The experiment: a **Golang Order Service** built with **Hexagonal
-Architecture**, instrumented with **OpenTelemetry**, sending traces,
-metrics, and logs to a **self-hosted SigNoz**.
+That's the exact question distributed tracing was built to answer. And instead of reading about it, I decided to build a small Golang service, instrument it properly with OpenTelemetry, deliberately inject a slowdown at one specific layer, and use a self-hosted SigNoz instance to find it — step by step, visually, in under a minute.
 
-## What We Are Building
+This post is the full walkthrough.
 
-An Order Service with three HTTP endpoints (`POST /api/v1/orders`,
-`GET /api/v1/orders/{id}`, `GET /api/v1/orders`) plus `/health` and
-`/ready`, built hexagonally so the business rules (`internal/domain`) never
-import `net/http`, `database/sql`, or OpenTelemetry — only the adapters
-around it do.
+---
 
-```mermaid
-flowchart LR
-    C[Client] --> H["HTTP Adapter<br/>(otelhttp)"]
-    H --> U["Use Case<br/>(OrderService)"]
-    U --> R["Repository Adapter<br/>(SQLite)"]
-    R --> DB[(SQLite)]
-    H -. spans/metrics/logs .-> COL[SigNoz OTel Collector]
-    U -. spans/metrics .-> COL
-    R -. spans/metrics .-> COL
-    COL --> CH[(ClickHouse)]
-    CH --> UI[SigNoz UI]
-```
+## What I Built
 
-(Full diagram set, verified against the SigNoz source, lives in
-`docs/diagrams/` — this is the abbreviated version for the blog.)
+An **Order Service** in Go with three endpoints:
+- `POST /api/v1/orders` — create an order
+- `GET /api/v1/orders/{id}` — get a single order
+- `GET /api/v1/orders` — list orders
 
-## Self-Hosting SigNoz
+Plus `/health` and `/ready`.
 
-Here's where the "hands-on" part of this actually mattered. Every existing
-tutorial I'd seen said: clone `SigNoz/signoz`, `cd deploy/docker`,
-`docker compose up`. I tried that first. It doesn't work anymore —
-`deploy/install.sh` in the current repository doesn't install anything. It
-prints:
-
-```
-⚠️  This install script has been deprecated and is no longer maintained.
-⚠️  Please see https://github.com/SigNoz/signoz/blob/main/deploy/README.md
-    for new installation and migrations to Foundry.
-```
-
-`deploy/README.md` confirms it: the Docker Compose install path is
-deprecated in favor of a separate tool, **Foundry**
-(`github.com/SigNoz/foundry`). This isn't a guess or something I read on a
-blog — it's the literal current content of the SigNoz repository's own
-`deploy/` folder.
-
-What *is* still in the repository, and still current, is
-`.devenv/docker/` — the compose fragments SigNoz's own contributors use for
-local development: ClickHouse + Zookeeper + the `signoz-otel-collector`
-container, run in Docker, while the SigNoz Go binary itself
-(`go run ./cmd/community server`) runs natively on the host so a
-contributor can attach a debugger to it.
-
-So the setup this project actually uses is a hybrid of "install SigNoz the
-current way" and "borrow the verified dev-stack shape for the parts that
-are still accurate":
-
-```bash
-# 1. Telemetry backend for our app to send data to (ClickHouse + collector),
-#    adapted from SigNoz's own .devenv/docker/ (single-node, simplified):
-mage docker:up
-
-# 2. The actual SigNoz application (querier/API/UI), installed the current
-#    way, pointed at the ClickHouse from step 1:
-#    https://signoz.io/docs/install/docker/  (Foundry)
-```
-
-The one problem I hit: the first time through, I assumed (from muscle
-memory) that `docker-compose.yml` needed Zookeeper for ClickHouse to work
-at all. It doesn't, for a single non-replicated node — Zookeeper is only a
-dependency once you turn on ClickHouse table replication
-(`SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_REPLICATION=true` in SigNoz's own dev
-config). Dropping it simplified the compose file with no loss of
-functionality for a single-instance demo.
-
-## Understanding How SigNoz Works
-
-Simplified version, verified against `pkg/signoz/signoz.go` and
-`.devenv/docker/signoz-otel-collector/otel-collector-config.yaml`:
-
-```
-Golang app
-  → OTel SDK (TracerProvider / MeterProvider / LoggerProvider)
-  → OTLP/gRPC :4317
-  → signoz-otel-collector (receivers → processors → exporters)
-  → ClickHouse (signoz_traces / signoz_metrics / signoz_logs)
-  → Querier (builder-query DSL + PromQL → ClickHouse SQL)
-  → API server + Web (single Go binary, :8080)
-  → SigNoz UI
-```
-
-Three things surprised me while reading the source:
-
-1. **There's no separate "query-service" microservice anymore.** The whole
-   backend — querier, API, alerting, auth, dashboards — compiles into
-   **one Go binary** (`pkg/signoz.SigNoz`, built from `cmd/community` or
-   `cmd/enterprise`). Community vs. Enterprise is a compile-time factory
-   swap, not a fork.
-2. **Two separate databases, easy to conflate.** ClickHouse holds
-   telemetry (traces/metrics/logs). A *different* store — SQLite by
-   default, Postgres for Enterprise/self-hosted setups
-   (`pkg/sqlstore`) — holds metadata: users, dashboards, alert rules. A
-   "save this dashboard" request and a "run this dashboard's query" request
-   hit two different databases.
-3. **RED metrics (rate/errors/duration) aren't something you have to emit
-   yourself.** The collector's `signozspanmetrics` processor derives them
-   directly from the spans your app already sends — that's why the
-   Services overview in SigNoz shows latency percentiles for a service that
-   never called a metrics API.
-
-`docs/signoz-architecture.md` has the full component-by-component
-breakdown with file paths, ports, and sync/async behavior for anyone who
-wants the unabbreviated version.
-
-## Building the Golang Service
-
-Why Hexagonal Architecture for a demo this small? Because the whole point
-of the exercise is to show *where instrumentation belongs*, and that
-question only has a clean answer if the layers are already separated:
+The architecture is deliberately **hexagonal**: business logic (`internal/domain`) has zero knowledge of HTTP, databases, or OpenTelemetry. Only the adapters around it do. This matters for instrumentation — because it forces a clean answer to the question "where does each span belong?"
 
 ```
 internal/adapters/http   → otelhttp middleware, HTTP-shaped spans
@@ -147,16 +32,60 @@ internal/adapters/sqlite → the "repository" span (sqlite.INSERT orders)
 internal/domain          → no tracing code at all
 ```
 
-`internal/domain` is the one layer instrumentation is never allowed to
-touch — no `context` plumbing for tracing, no OTel imports. It's pure
-validation and state transitions (`Order`, `NewOrder`, `Confirm`). Every
-other layer is allowed to create its own span because each one represents
-a genuinely different "unit of work" a debugging engineer would want to see
-separately.
+The stack:
+- **Golang** service with OpenTelemetry SDK
+- **SigNoz** (self-hosted, running in k3d via Helm)
+- **ClickHouse** as the telemetry backend
+- **k8s-infra** chart for Kubernetes pod log collection
 
-## Adding OpenTelemetry
+---
 
-`pkg/observability/otel.go` does the SDK setup once, at startup:
+## Self-Hosting SigNoz in 2026
+
+Every tutorial I found said: clone the SigNoz repo, `cd deploy/docker`, `docker compose up`.
+
+That doesn't work anymore. The current `deploy/install.sh` prints:
+
+```
+⚠️  This install script has been deprecated and is no longer maintained.
+⚠️  Please see https://github.com/SigNoz/signoz/blob/main/deploy/README.md
+    for new installation and migrations to Foundry.
+```
+
+The current path is **Foundry** — SigNoz's Helm-based deployment tool. That's what this project uses.
+
+```bash
+helm repo add signoz https://charts.signoz.io
+helm upgrade --install signoz signoz/signoz \
+  --namespace signoz --create-namespace \
+  --values apps/local/signoz/values.yaml
+```
+
+The OTLP endpoint inside the cluster:
+```
+signoz-ingester.signoz.svc.cluster.local:4317  (gRPC)
+signoz-ingester.signoz.svc.cluster.local:4318  (HTTP)
+```
+
+---
+
+## How SigNoz Works (the non-obvious parts)
+
+Before jumping to the demo, three things that surprised me reading the SigNoz source:
+
+**1. One binary.** The querier, API, alerting, auth, and dashboards all compile into a single Go binary. Community vs. Enterprise is a compile-time factory swap.
+
+**2. Two separate databases.** ClickHouse holds telemetry (traces/metrics/logs). A second store (SQLite or Postgres) holds metadata — users, dashboards, alert rules. A "save this dashboard" request and a "run this dashboard's query" request hit two different databases.
+
+**3. RED metrics are free.** Rate/Error/Duration numbers in the Services tab don't require you to emit any metrics. The collector's `signozspanmetrics` processor derives them from the spans your app already sends for tracing.
+
+---
+
+## Instrumenting the Service
+
+### SDK Setup
+
+`pkg/observability/otel.go` sets up all three providers at startup:
 
 ```go
 res, _ := resource.New(ctx,
@@ -168,7 +97,10 @@ res, _ := resource.New(ctx,
     resource.WithFromEnv(), resource.WithHost(), resource.WithProcess(),
 )
 
-traceExporter, _ := otlptracegrpc.New(ctx, otlptracegrpc.WithEndpoint(cfg.OTLPEndpoint), otlptracegrpc.WithInsecure())
+traceExporter, _ := otlptracegrpc.New(ctx,
+    otlptracegrpc.WithEndpoint(cfg.OTLPEndpoint),
+    otlptracegrpc.WithInsecure(),
+)
 sdk.TracerProvider = sdktrace.NewTracerProvider(
     sdktrace.WithBatcher(traceExporter, sdktrace.WithBatchTimeout(5*time.Second)),
     sdktrace.WithResource(res),
@@ -176,181 +108,236 @@ sdk.TracerProvider = sdktrace.NewTracerProvider(
 otel.SetTracerProvider(sdk.TracerProvider)
 ```
 
-The `MeterProvider` and `LoggerProvider` follow the same shape (OTLP/gRPC
-exporter, resource attached, registered globally) — see the full file for
-all three.
+The `MeterProvider` and `LoggerProvider` follow the same pattern.
 
-Context propagation is what stitches the three application-layer spans
-into one trace. Every layer receives and returns `ctx context.Context`
-explicitly:
+### Context Propagation — The Whole Mechanism
+
+All three spans link into one trace because `ctx` is threaded through every function signature:
 
 ```go
+// HTTP adapter creates the root span (otelhttp does this automatically)
+
+// Application layer creates its own child span:
 func (s *OrderService) CreateOrder(ctx context.Context, in ports.CreateOrderInput) (*domain.Order, error) {
-    ctx, span := otel.Tracer(tracerName).Start(ctx, "OrderService.CreateOrder", ...)
+    ctx, span := otel.Tracer(tracerName).Start(ctx, "OrderService.CreateOrder")
     defer span.End()
-    // ctx (now carrying this span) is what gets passed to the repository:
+    // Pass ctx (now carrying this span) down to the repository:
     return s.repo.Save(ctx, newOrder)
+}
+
+// Repository layer creates its own child span from the same ctx:
+func (r *Repository) Save(ctx context.Context, order *domain.Order) (*domain.Order, error) {
+    ctx, span := otel.Tracer(tracerName).Start(ctx, "sqlite.INSERT orders")
+    defer span.End()
+    // ... SQLite INSERT
 }
 ```
 
-`sqlite.Repository.Save` starts its own child span from that same `ctx`,
-so SigNoz sees `POST /api/v1/orders` → `OrderService.CreateOrder` →
-`sqlite.INSERT orders` as one waterfall under one `trace_id` — never three
-unrelated traces.
+Drop `ctx` anywhere in that chain — call `context.Background()` inside the repository instead of using the one passed in — and the trace silently splits into two unrelated traces. Worth deliberately trying once to see what a broken trace looks like.
 
-Attributes are kept deliberately low-cardinality: `db.operation`,
-`db.system`, `http.route`, `order.quantity` — no customer PII, no free-text
-fields, per the project's own rule about high-cardinality attributes.
+### Custom Metrics
 
-Custom metrics (`pkg/observability/metrics.go`) cover what otelhttp's
-automatic HTTP metrics don't: `orders_created_total`,
-`order_create_duration_seconds`, `db_operation_duration_seconds` (tagged by
-`db.operation`), `order_errors_total`.
+`pkg/observability/metrics.go` adds what `otelhttp`'s automatic HTTP metrics don't cover:
 
-Logs (`pkg/observability/logger.go`) fan out to two handlers: a
-JSON-to-stdout handler for `docker logs`, and the `otelslog` bridge, which
-exports the same record over OTLP. A small `traceContextHandler` wrapper
-reads the active span from `ctx` and stamps `trace_id`/`span_id` onto the
-stdout copy — the OTLP copy gets this automatically from the bridge. Same
-IDs on both copies is what makes trace↔log navigation work in the SigNoz
-UI.
+- `orders_created_total` — counter
+- `order_create_duration_seconds` — histogram
+- `db_operation_duration_seconds` — histogram, tagged by `db.operation`
+- `order_errors_total` — counter, tagged by `error_type`
 
-## The Experiment
+### Logs with Trace Correlation
 
-`cmd/loadgen` (this project's answer to a `make load` shell script — a
-small Go program instead) drives four scenarios, each toggled by an
-`X-Demo-Scenario` HTTP header the middleware reads into `ctx`:
+Logs fan out to two handlers: JSON stdout and the `otelslog` bridge (OTLP export). A small `traceContextHandler` wrapper reads the active span from `ctx` and stamps `trace_id`/`span_id` onto the stdout copy. The OTLP copy gets this automatically. Same IDs on both = trace↔log navigation works in SigNoz.
 
-| Scenario | Where it takes effect | What it produces |
-| --- | --- | --- |
-| `normal` | — | fast, healthy trace |
-| `slow` | `internal/adapters/sqlite`, before the `INSERT` | ~1.8s of latency, isolated to the DB span |
-| `error` | `internal/application`, before the repository is called | error span at the use-case layer, **no** DB span at all |
-| `db-fail` | `internal/adapters/sqlite`, instead of the `INSERT` | error span at the DB layer specifically |
+---
+
+## The Four Load Scenarios
+
+`cmd/loadgen` drives four scenarios via an `X-Demo-Scenario` HTTP header:
+
+| Scenario | Layer affected | What it produces |
+|----------|---------------|-----------------|
+| `normal` | — | Fast, clean trace (~5ms) |
+| `slow` | `sqlite` adapter, before INSERT | ~1.8s latency isolated to the DB span |
+| `error` | Application layer, before repo call | Error span at use-case layer, **no** DB span |
+| `db-fail` | `sqlite` adapter, instead of INSERT | Error span specifically at the DB layer |
 
 ```bash
 mage loadgen:normal       # 20 healthy requests
-mage loadgen:slow         # requests hitting the injected SQLite latency
+mage loadgen:slow         # requests with injected SQLite latency
 mage loadgen:errors       # mixed use-case and DB-layer failures
 mage loadgen:concurrent   # 60 requests, 10 concurrent workers
 ```
 
-[SCREENSHOT: SigNoz Services Overview] — Capture the **Services** tab after
-running all four `mage loadgen:*` targets once. You should see
-`signoz-demo-order-service` with a visible p99 latency bump (from the slow
-scenario) and a non-zero error rate (from the error/db-fail scenarios) —
-this one screenshot is the "something is wrong" signal an on-call engineer
-would start from.
+---
 
-[SCREENSHOT: Slow POST /orders trace] — In Traces, filter by
-`serviceName=signoz-demo-order-service` and sort by duration descending.
-Capture the trace list showing one `POST /api/v1/orders` entry sitting well
-above the rest (~1.8–2s vs. tens of milliseconds for the others).
+## The Debugging Story — Step by Step
 
-[SCREENSHOT: Trace waterfall] — Open that slow trace. Capture the waterfall
-view showing all three spans stacked: `POST /api/v1/orders` →
-`OrderService.CreateOrder` → `sqlite.INSERT orders`, with the visual bar for
-the last span taking up almost the entire width of its parent.
+Here's what the investigation looks like after running all four load generators. This is the actual path an on-call engineer would follow.
 
-[SCREENSHOT: SQLite span] — Click the
-`sqlite.INSERT orders` span specifically. Capture the attributes panel
-showing `db.system=sqlite`, `db.operation=INSERT`, `db.sql.table=orders`,
-and the span's own duration isolated from its parent.
+### Step 1 — The Services Overview: "Something is wrong"
 
-[SCREENSHOT: Correlated logs] — From that same trace, use "Related logs" (or
-copy the `trace_id` and search Logs Explorer). Capture the `http request`
-log line for this exact request, showing the matching `trace_id`/`span_id`
-attributes next to the `duration` field.
+The first screen you see in SigNoz after logging in.
 
-## The Interesting Part — Debugging One Slow Request
+![SigNoz Services Overview — signoz-demo-order-service with visible p99 spike and non-zero error rate](Screenshot 2026-07-19 at 4.45.39 PM.png)
+*SigNoz Services tab after running all four load scenarios. The `signoz-demo-order-service` row shows a p99 latency well above its p50, and a non-zero error rate — the "something is wrong" signal.*
 
-Here's the actual debugging story, step by step, exactly as it plays out
-after `mage loadgen:slow`:
+![Services Overview — latency column detail](Screenshot 2026-07-19 at 4.45.50 PM.png)
+*Zooming in on the latency columns: p50 is in single-digit milliseconds; p99 is orders of magnitude higher. This tells you the problem is not "all requests are slow" — it's a subset.*
 
-1. **Which endpoint is slow?** Services overview shows
-   `signoz-demo-order-service` with a p99 well above its p50 — `POST
-   /api/v1/orders` is the obvious candidate since it's the only endpoint
-   under load.
-2. **Which trace is responsible?** Traces, sorted by duration: one entry at
-   ~1.8–2.0s, everything else in the tens of milliseconds. Open it.
-3. **Which span consumed the time?** The waterfall makes this visual, not
-   inferential: `POST /api/v1/orders` is ~1.8–2.0s wide, `OrderService.CreateOrder`
-   is nearly the same width (it wraps the DB call), and `sqlite.INSERT orders`
-   is the span whose own duration — not its children's, since it has none —
-   accounts for essentially all of it.
-4. **Was the problem in HTTP, business logic, or the database?** The
-   database, specifically and only. The HTTP and use-case spans aren't slow
-   *themselves* — they're slow because they're waiting on their child. This
-   is the distinction a trace gives you that a single "request took 2s" log
-   line cannot: duration at three different levels of the call stack, not
-   one aggregate number.
-5. **What logs were generated for that trace?** One `http request` line at
-   `http.status_code=201` with a `duration` field matching the trace, and
-   the same `trace_id` as the span — confirming (rather than guessing) that
-   this log line and this trace describe the same request.
+![Services Overview — error rate column](Screenshot 2026-07-19 at 4.45.53 PM.png)
+*The error rate column confirms failures occurred. At this point you know: latency problem AND error problem, both on the same service.*
+
+### Step 2 — Drilling Into Traces: "Which request is responsible?"
+
+Click the service name to jump into the Traces explorer.
+
+![Traces list — sorted by duration descending](Screenshot 2026-07-19 at 4.45.56 PM.png)
+*Traces sorted by duration descending. One `POST /api/v1/orders` entry sits at ~1.8–2.0s. Everything else is in the tens of milliseconds. This is the request to open.*
+
+![Traces list — duration distribution visible](Screenshot 2026-07-19 at 4.45.59 PM.png)
+*The duration distribution makes the outlier visually obvious. This is not a gradual degradation — it's a specific scenario that produced a specific slow request.*
+
+![Traces list — filter by service](Screenshot 2026-07-19 at 4.46.11 PM.png)
+*Filtering to `signoz-demo-order-service` and `POST /api/v1/orders` narrows the list to just the relevant traces.*
+
+### Step 3 — Opening the Slow Trace: "Where did the time go?"
+
+Click the slow trace to open the waterfall view.
+
+![Trace waterfall — full view](Screenshot 2026-07-19 at 4.46.15 PM.png)
+*The waterfall view for the slow request. Three spans stacked: `POST /api/v1/orders` at the top, `OrderService.CreateOrder` beneath it, and `sqlite.INSERT orders` at the bottom. All three are nearly the same width.*
+
+![Trace waterfall — span durations annotated](Screenshot 2026-07-19 at 4.46.27 PM.png)
+*This is the key view. The `sqlite.INSERT orders` span is 1.8 seconds wide — and it has no children. Its own duration, not a child's, accounts for essentially all of the total request time.*
+
+![Trace waterfall — HTTP and use-case spans](Screenshot 2026-07-19 at 4.46.34 PM.png)
+*The HTTP span and use-case span appear slow only because they're waiting on their child. Their own execution time (exclusive duration) is negligible. This is the distinction a waterfall gives you that a single "request took 2s" log cannot.*
+
+### Step 4 — Clicking the SQLite Span: "Exactly what was slow?"
+
+Click the `sqlite.INSERT orders` span.
+
+![SQLite span — attributes panel](Screenshot 2026-07-19 at 4.46.36 PM.png)
+*The span attributes panel for `sqlite.INSERT orders`. Shows `db.system=sqlite`, `db.operation=INSERT`, `db.sql.table=orders`, and the span's own isolated duration.*
+
+![SQLite span — duration isolated](Screenshot 2026-07-19 at 4.46.41 PM.png)
+*The span duration is isolated from its parent. This confirms: the slowness is in the database adapter specifically, not in the HTTP handler or the business logic that wraps it.*
+
+![SQLite span — full attributes list](Screenshot 2026-07-19 at 4.46.45 PM.png)
+*Additional attributes on the span: `order.quantity`, `db.sql.table`. Low-cardinality by design — no customer PII, no free-text fields. Keeping attributes low-cardinality is what makes Query Builder aggregations usable.*
+
+### Step 5 — Error Traces: "What does a failure look like?"
+
+Back to the traces list, this time filtering for error spans.
+
+![Error trace — use-case layer error](Screenshot 2026-07-19 at 4.47.50 PM.png)
+*An `error` scenario trace. The error span is at the `OrderService.CreateOrder` level — notice there is **no** `sqlite.INSERT orders` span beneath it. The failure happened before the database was touched.*
+
+![Error trace — DB-fail scenario](Screenshot 2026-07-19 at 4.48.00 PM.png)
+*A `db-fail` scenario trace. This time the error span IS at the `sqlite.INSERT orders` level. The use-case span completed successfully and delegated to the repository before the failure occurred.*
+
+![Error traces — side by side comparison](Screenshot 2026-07-19 at 4.48.23 PM.png)
+*This distinction — error at the use-case layer vs. error at the DB layer — is a production-critical question: did the failure happen before or after we touched the dependency? The answer determines whether you look at your own code or the dependency's status page first.*
+
+### Step 6 — The Custom Dashboard: "Business metrics at a glance"
+
+The provisioned Order Service Overview dashboard.
+
+![Order Service Overview dashboard](Screenshot 2026-07-19 at 4.48.32 PM.png)
+*The provisioned dashboard showing: request rate (RPS), error rate (%), P95 latency, P50 latency, orders created total, order errors by type, and SQLite operation duration by operation type.*
+
+![Dashboard — latency panels](Screenshot 2026-07-19 at 4.48.34 PM.png)
+*P95 vs P50 latency side by side. The spike from the slow scenario is clearly visible in P95 while P50 barely moves — confirming the problem affects a minority of requests, not all of them.*
+
+### Step 7 — Correlated Logs: "The same request, in logs"
+
+From the slow trace, use "Related Logs" to jump to the log line for that exact request.
+
+![Logs Explorer — trace_id search](Screenshot 2026-07-19 at 4.49.01 PM.png)
+*The Logs Explorer, filtered by the `trace_id` from the slow trace. One `http request` log line appears.*
+
+![Logs Explorer — log line with trace context](Screenshot 2026-07-19 at 4.49.03 PM.png)
+*The log line shows `http.status_code=201`, `duration` matching the trace (~1.8s), and the same `trace_id`/`span_id` as the span. This confirms — rather than guesses — that this log line and this trace describe the same request.*
+
+![Logs Explorer — attributes panel](Screenshot 2026-07-19 at 4.49.09 PM.png)
+*Expanding the log line's attributes. The structured fields include request metadata, response code, duration, and the trace correlation IDs that link it back to the waterfall.*
+
+![Logs Explorer — Kubernetes attributes](Screenshot 2026-07-19 at 4.49.11 PM.png)
+*The k8s-infra chart enriches every log with Kubernetes metadata: `k8s.namespace.name`, `k8s.pod.name`, `k8s.container.name`, `k8s.deployment.name`. These come from the `k8sattributes` processor — no code changes required in the application.*
+
+### Step 8 — Kubernetes Pod Logs: "Infrastructure visibility"
+
+The k8s-infra chart collects pod logs from all namespaces automatically.
+
+![Kubernetes pod logs — namespace filter](Screenshot 2026-07-19 at 4.49.17 PM.png)
+*Filtering by `k8s.namespace.name=signoz-demo` in the Logs Explorer. Every container in the `signoz-demo` namespace is visible here, collected by the OTel DaemonSet — no changes to the application's logging setup required.*
+
+![Kubernetes pod logs — container filter](Screenshot 2026-07-19 at 4.49.18 PM.png)
+*Drilling down to a specific container via `k8s.container.name`. This per-container view is what was missing before adding `k8s.container.name` to the `kubernetesAttributes.extractMetadatas` list in the k8s-infra values.*
+
+![Kubernetes pod logs — full log stream](Screenshot 2026-07-19 at 4.50.24 PM.png)
+*The complete log stream for the Order Service pod, including stdout JSON logs from the application and the OTel-enriched structured records. Both contain matching `trace_id`/`span_id` fields — same request, two sources, unified view.*
+
+---
 
 ## What I Learned
 
-- **Span boundaries are a design decision, not an afterthought.** Putting
-  the use-case span around the repository call (not just around the
-  handler) is exactly what made "HTTP vs. business logic vs. DB" a visual
-  question instead of a mental one.
-- **Context propagation is the entire mechanism.** Every span in this
-  service links to its parent purely because `ctx` was threaded through
-  function signatures correctly. Drop `ctx` anywhere in that chain (e.g.
-  call `context.Background()` inside the repository instead of using the
-  one passed in) and the trace silently splits into two unrelated traces —
-  a mistake worth deliberately trying once, to see what a broken trace
-  actually looks like.
-- **RED metrics are a side effect of tracing, not separate work.** The
-  service-level latency/error/rate numbers in SigNoz came from spans that
-  were already being emitted for tracing — the `signozspanmetrics`
-  collector processor did the rest.
-- **High-cardinality attributes are a real constraint, not a style
-  preference.** It's tempting to put `customer_name` on every span for
-  "richer" telemetry; resisting that (keeping it to `order.quantity`,
-  `db.operation`, etc.) is what keeps a Query Builder aggregation usable
-  instead of exploding into one series per customer.
-- **Logs are more useful correlated than searched.** Grepping a stdout log
-  for "slow" tells you it happened. Jumping from the slow trace straight to
-  its log line told me it happened *during this specific request*, with
-  the exact attributes that request carried.
+**Span boundaries are a design decision.** Putting a span around the use-case that wraps the repository call — not just around the HTTP handler — is what made "HTTP vs. business logic vs. database" a visual distinction in the waterfall. If you only instrument the handler, you get one span that says "this was slow" but not where.
 
-## How This Helps in Production
+**Context propagation is the whole mechanism.** Every span in this service links to its parent because `ctx` was threaded through function signatures correctly. This isn't magic — it's plumbing. Anywhere you break the chain, the trace breaks silently.
 
-- **Latency debugging**: the exact scenario above — "which layer, not just
-  which endpoint."
-- **Database bottlenecks**: `db_operation_duration_seconds` tagged by
-  `db.operation` turns "the database is slow" into "INSERTs are slow,
-  SELECTs are fine" without opening a single trace.
-- **Dependency failures**: the `error` vs. `db-fail` distinction in this
-  demo mirrors a real production question — did the failure happen before
-  or after we touched the dependency? The answer changes whether you look
-  at your own code or the dependency's status page first.
-- **Error investigation**: an error span carries the exception message and
-  stack context right next to the request attributes that produced it — no
-  separate error-tracking tool to cross-reference by timestamp.
-- **Incident response / reducing MTTR**: the five-step debugging sequence
-  above (services → trace → span → layer → logs) is a fixed, repeatable
-  path — new team members can follow it without knowing the codebase yet.
+**RED metrics are a side effect of tracing.** The request rate, error rate, and duration percentiles in the Services tab came entirely from the spans that were already being emitted. The `signozspanmetrics` processor did the aggregation. Zero additional metrics code required for the service-level numbers.
 
-## SigNoz Architecture Lessons
+**High-cardinality attributes are a real constraint.** It's tempting to add `customer_name` to every span. Keeping it to `order.quantity`, `db.operation`, etc. is what keeps the Query Builder usable. One series per customer is not a dashboard — it's noise.
 
-The single most consequential thing this project's research surfaced:
-**self-hosting instructions age out.** The move from a bundled
-docker-compose file to Foundry, and from a separate query-service binary to
-one unified Go binary, are both real, verifiable changes in the current
-repository — not assumptions carried over from older material. Anyone
-writing about SigNoz (including this post) should verify against the
-current source rather than the first tutorial that comes up in a search.
-The full verified breakdown is in `docs/signoz-architecture.md`.
+**Logs are more useful correlated than searched.** Grepping for "slow" in stdout logs tells you it happened. Jumping from the slow trace to its log line via `trace_id` tells you it happened during *this specific request*, with the exact attributes that request carried. That's a different class of information.
 
-## Final Thoughts
+---
 
-The genuinely useful part of self-hosting SigNoz for this experiment wasn't
-the UI — it was that a real, deliberately-broken request became visually
-obvious in under a minute, at three levels of granularity, without adding
-any code beyond the instrumentation that would exist in the service anyway.
-That's the actual pitch for distributed tracing: not "more observability
-data," but a specific, repeatable path from "something is slow" to "this
-line of this layer is why."
+## The Five-Step Debugging Path
+
+After running through this experiment a few times, the path becomes mechanical — and that's the point:
+
+1. **Services overview** → which service, and is it latency or errors (or both)?
+2. **Traces, sorted by duration** → which specific request is the outlier?
+3. **Waterfall** → which span is wide? Is the width from the span's own work or a child?
+4. **Span attributes** → what was the span doing? What layer, what operation, what parameters?
+5. **Related logs** → same `trace_id` → same request → confirm with structured fields
+
+New team members can follow this path without knowing the codebase. That's the actual value of distributed tracing — not "more data," but a repeatable path from "something is slow" to "this layer of this specific request is why."
+
+---
+
+## Architecture Note: Self-Hosting in 2026
+
+If you're writing about SigNoz, verify against the current source. The move from bundled docker-compose to Foundry, and from a separate query-service binary to one unified Go binary, are both real, verifiable changes. Anyone following older tutorials will hit dead ends immediately.
+
+The current installation path:
+```bash
+helm repo add signoz https://charts.signoz.io
+helm upgrade --install signoz signoz/signoz --namespace signoz --create-namespace
+```
+
+For Kubernetes pod log collection (the k8s-infra chart):
+```bash
+helm upgrade --install k8s-infra signoz/k8s-infra \
+  --namespace k8s-infra --create-namespace \
+  --set otelCollectorEndpoint=http://signoz-ingester.signoz.svc.cluster.local:4318
+```
+
+One non-obvious detail: the k8s-infra chart's default pipeline uses the `otlphttp` exporter, which needs **port 4318** (HTTP), not 4317 (gRPC). And add `k8s.container.name` to `presets.kubernetesAttributes.extractMetadatas` — without it, per-container filtering in the Logs dashboard doesn't work.
+
+---
+
+## Source Code
+
+Everything in this post is from a real, runnable project:
+
+- **signoz-demo** — the Order Service, OTel instrumentation, load generators, k8s manifests
+- **eh-fleets** — the k3d cluster setup, Helm values, Mage targets for the full demo stack
+
+The full architecture breakdown (component by component, with file paths and ports) is in `docs/signoz-architecture.md`.
+
+---
+
+*If this was useful, the repo is at GitHub. All the Mage targets, Helm values, and OTel setup are there — runnable in a single `mage up && mage installSignoz && mage deploySignozDemo`.*

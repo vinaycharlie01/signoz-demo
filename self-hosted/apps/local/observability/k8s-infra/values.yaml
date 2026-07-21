@@ -1,0 +1,44 @@
+# Local (k3d) environment overrides for the SigNoz k8s-infra Helm chart.
+# Layered on top of apps/base/observability/k8s-infra/values.yaml.
+#
+# The k8s-infra chart pipelines use the `otlphttp` exporter by default.
+# It reads the endpoint from the OTEL_EXPORTER_OTLP_ENDPOINT env var, which
+# is set from `otelCollectorEndpoint` below.
+#
+# SigNoz ingester ports:
+#   4317 → OTLP/gRPC   (use with the `otlp` exporter — grpc)
+#   4318 → OTLP/HTTP   (use with the `otlphttp` exporter — ← correct for this chart)
+
+global:
+  clusterName: "observability"  # matches the k3d cluster name in k3d.yaml
+
+# This value becomes the OTEL_EXPORTER_OTLP_ENDPOINT env var in the collector pods.
+# The chart's default pipeline uses otlphttp — so we point to port 4318 (HTTP).
+otelCollectorEndpoint: "http://signoz-ingester.signoz.svc.cluster.local:4318"
+
+presets:
+  logsCollection:
+    enabled: true
+    blacklist:
+      enabled: true
+      # Keep SigNoz system logs out of the demo to reduce noise.
+      signozLogs: true
+      namespaces:
+        - kube-system
+      pods:
+        - hotrod
+        - locust
+      containers: []
+      additionalExclude: []
+
+  hostMetrics:
+    enabled: true
+
+  kubeletMetrics:
+    enabled: true
+
+  clusterMetrics:
+    enabled: true
+
+  k8sEvents:
+    enabled: true

@@ -1,0 +1,104 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: signoz-provision
+  namespace: signoz
+  labels:
+    app.kubernetes.io/name: signoz-provision
+    app.kubernetes.io/part-of: signoz
+  annotations:
+    # Re-run provisioning by changing this value and re-applying.
+    signoz.io/provision-revision: "1"
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: signoz-provision
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: provision
+          image: curlimages/curl:8.8.0
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              BASE_URL="http://signoz.signoz.svc.cluster.local:8085"
+
+              echo "==> Waiting for SigNoz to be ready..."
+              for i in $(seq 1 30); do
+                STATUS=$(curl -sf "${BASE_URL}/api/v1/health" 2>/dev/null || true)
+                if echo "${STATUS}" | grep -q "ok"; then
+                  echo "    Ready!"
+                  break
+                fi
+                echo "    attempt ${i}/30 — retrying in 10s..."
+                sleep 10
+              done
+
+              echo "==> Logging in..."
+              LOGIN=$(curl -sf -X POST "${BASE_URL}/api/v1/login" \
+                -H "Content-Type: application/json" \
+                -d "{\"email\":\"${SIGNOZ_EMAIL}\",\"password\":\"${SIGNOZ_PASS}\"}")
+              TOKEN=$(echo "${LOGIN}" | grep -o '"accessJwt":"[^"]*"' | cut -d'"' -f4)
+              if [ -z "${TOKEN}" ]; then
+                echo "ERROR: login failed: ${LOGIN}"
+                exit 1
+              fi
+              echo "    Logged in OK"
+
+              post_json() {
+                ENDPOINT="$1"; FILE="$2"; LABEL="$3"
+                RESP=$(curl -sf -X POST "${BASE_URL}${ENDPOINT}" \
+                  -H "Content-Type: application/json" \
+                  -H "Authorization: Bearer ${TOKEN}" \
+                  --data-binary "@${FILE}" 2>&1 || echo '{"error":"curl_failed"}')
+                echo "    ${LABEL}: $(echo ${RESP} | head -c 80)"
+              }
+
+              echo "==> Creating Alerts..."
+              for f in /alerts/*.json; do
+                post_json "/api/v1/alerts" "${f}" "$(basename ${f})"
+              done
+
+              echo "==> Creating Saved Views..."
+              for f in /views/*.json; do
+                post_json "/api/v1/explorer/views" "${f}" "$(basename ${f})"
+              done
+
+              echo "==> Creating Dashboards..."
+              for f in /dashboards/*.json; do
+                post_json "/api/v1/dashboards" "${f}" "$(basename ${f})"
+              done
+
+              echo "==> Provisioning complete!"
+          env:
+            - name: SIGNOZ_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: signoz-provision-secret
+                  key: email
+            - name: SIGNOZ_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: signoz-provision-secret
+                  key: password
+          volumeMounts:
+            - name: alerts
+              mountPath: /alerts
+            - name: views
+              mountPath: /views
+            - name: dashboards
+              mountPath: /dashboards
+      volumes:
+        - name: alerts
+          configMap:
+            name: signoz-provision-alerts
+        - name: views
+          configMap:
+            name: signoz-provision-views
+        - name: dashboards
+          configMap:
+            name: signoz-provision-dashboards

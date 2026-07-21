@@ -7,3 +7,5 @@
 *.db-shm
 coverage.out
 .DS_Store
+blog
+final_blog

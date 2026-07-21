@@ -1,0 +1,78 @@
+# k3d observability stack configuration
+# Used by mage targets via the k3dmagex package
+#
+# This cluster hosts:
+#   - ingress-nginx  (load balancer)
+#   - SigNoz         (deployed via foundry / kustomize from the foundry repo)
+#   - signoz-demo    (the demo Order Service — deployed manually via kustomize)
+
+cluster:
+  name: observability
+  servers: 1
+  agents: 1
+  ports:
+    - "80:80@loadbalancer"
+    - "443:443@loadbalancer"
+  k3sArgs:
+    - "--disable=traefik@server:*"
+  # Registry config for corporate/VPN TLS proxy environments.
+  # self-hosted/registries.yaml sets skip_verify=true for all major registries
+  # so containerd can pull images when a TLS-intercepting proxy is active.
+  # Remove or comment out this line if you're NOT behind a corporate proxy.
+  registryConfig: self-hosted/registries.yaml
+
+infrastructure:
+  kustomizePath: self-hosted/infrastructure/base/observability
+
+# SOPS-encrypted secrets to decrypt and apply during bootstrap
+secrets:
+  - secrets/base/observability/grafana-admin-secret.enc.yaml
+
+helmRepos:
+  ingress-nginx: https://kubernetes.github.io/ingress-nginx
+  signoz: https://charts.signoz.io
+  # grafana: https://grafana.github.io/helm-charts   # not used in the demo path
+  # argo: https://argoproj.github.io/argo-helm        # not used in the demo path
+
+# k8s-infra is installed separately via `mage installK8sInfra` (after SigNoz is ready)
+# so it is NOT listed in `releases` (which are installed by `mage up`).
+# The chart + values paths are kept here for reference only.
+# k8sInfra:
+#   chart: signoz/k8s-infra
+#   namespace: k8s-infra
+#   baseValues: apps/base/observability/k8s-infra/values.yaml
+#   envValues: apps/local/observability/k8s-infra/values.yaml
+
+# Releases are installed in this order
+releases:
+  - name: ingress-nginx
+    chart: ingress-nginx/ingress-nginx
+    namespace: ingress-nginx
+    wait: true
+    timeout: 5m
+
+  # Grafana is not used in the demo path (SigNoz ships its own UI).
+  # Uncomment below if you want Grafana alongside SigNoz.
+  # - name: grafana
+  #   chart: grafana/grafana
+  #   namespace: monitoring
+  #   baseValues: apps/base/observability/grafana/values.yaml
+  #   envValues: apps/local/observability/grafana/values.yaml
+
+# ArgoCD is not used in the demo path — deployments are done with kubectl apply -k.
+# Uncomment below to enable the GitOps / ArgoCD path (mage gitopsBootstrap).
+# argocd:
+#   release:
+#     name: argocd
+#     chart: argo/argo-cd
+#     namespace: argocd
+#     baseValues: apps/base/argocd/values.yaml
+#     envValues: apps/local/argocd/values.yaml
+#   appOfApps: clusters/local/argocd/app-of-apps.yaml
+#   repoSecret:
+#     name: eh-fleets-repo
+#     url: git@github.com:vinaycharlie01/eh-fleets.git
+#     sshKeyPath: ~/.ssh/id_ed25519
+#   applicationsToPrune:
+#     - ingress-nginx
+#     - grafana

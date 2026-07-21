@@ -1,0 +1,1309 @@
+{
+  "description": "Full observability for the signoz-demo Order Service: HTTP API metrics, SQLite DB call metrics, business metrics (orders/errors), and external call stubs — built on OTel traces + custom OTLP metrics.",
+  "dotMigrated": true,
+  "layout": [
+    { "h": 1,  "i": "row-http",             "maxH": 1, "minH": 1, "minW": 12, "moved": false, "static": false, "w": 12, "x": 0,  "y": 0  },
+    { "h": 6,  "i": "http-rps",             "moved": false, "static": false, "w": 6,  "x": 0,  "y": 1  },
+    { "h": 6,  "i": "http-error-rate",      "moved": false, "static": false, "w": 6,  "x": 6,  "y": 1  },
+    { "h": 6,  "i": "http-p95-latency",     "moved": false, "static": false, "w": 6,  "x": 0,  "y": 7  },
+    { "h": 6,  "i": "http-p50-latency",     "moved": false, "static": false, "w": 6,  "x": 6,  "y": 7  },
+    { "h": 7,  "i": "http-top-endpoints",   "moved": false, "static": false, "w": 12, "x": 0,  "y": 13 },
+    { "h": 1,  "i": "row-business",         "maxH": 1, "minH": 1, "minW": 12, "moved": false, "static": false, "w": 12, "x": 0,  "y": 20 },
+    { "h": 6,  "i": "orders-created",       "moved": false, "static": false, "w": 6,  "x": 0,  "y": 21 },
+    { "h": 6,  "i": "order-errors",         "moved": false, "static": false, "w": 6,  "x": 6,  "y": 21 },
+    { "h": 6,  "i": "order-duration",       "moved": false, "static": false, "w": 12, "x": 0,  "y": 27 },
+    { "h": 1,  "i": "row-db",               "maxH": 1, "minH": 1, "minW": 12, "moved": false, "static": false, "w": 12, "x": 0,  "y": 33 },
+    { "h": 6,  "i": "db-duration",          "moved": false, "static": false, "w": 6,  "x": 0,  "y": 34 },
+    { "h": 6,  "i": "db-calls-total",       "moved": false, "static": false, "w": 6,  "x": 6,  "y": 34 },
+    { "h": 6,  "i": "db-errors",            "moved": false, "static": false, "w": 6,  "x": 0,  "y": 40 },
+    { "h": 6,  "i": "db-rows-affected",     "moved": false, "static": false, "w": 6,  "x": 6,  "y": 40 },
+    { "h": 6,  "i": "db-rows-returned",     "moved": false, "static": false, "w": 6,  "x": 0,  "y": 46 },
+    { "h": 6,  "i": "db-error-rate-trace",  "moved": false, "static": false, "w": 6,  "x": 6,  "y": 46 },
+    { "h": 7,  "i": "db-slowest-calls",     "moved": false, "static": false, "w": 12, "x": 0,  "y": 52 },
+    { "h": 1,  "i": "row-external",         "maxH": 1, "minH": 1, "minW": 12, "moved": false, "static": false, "w": 12, "x": 0,  "y": 59 },
+    { "h": 6,  "i": "ext-duration",         "moved": false, "static": false, "w": 6,  "x": 0,  "y": 60 },
+    { "h": 6,  "i": "ext-calls-total",      "moved": false, "static": false, "w": 6,  "x": 6,  "y": 60 },
+    { "h": 6,  "i": "ext-call-errors",      "moved": false, "static": false, "w": 6,  "x": 0,  "y": 66 }
+  ],
+  "panelMap": {
+    "row-http":     { "collapsed": false, "widgets": [] },
+    "row-business": { "collapsed": false, "widgets": [] },
+    "row-db":       { "collapsed": false, "widgets": [] },
+    "row-external": { "collapsed": false, "widgets": [] }
+  },
+  "tags": ["signoz-demo", "order-service", "k3d", "sqlite", "custom-metrics"],
+  "title": "signoz-demo — Order Service (Full)",
+  "uploadedGrafana": false,
+  "variables": {
+    "var-env": {
+      "allSelected": false,
+      "customValue": "",
+      "description": "Deployment environment",
+      "dynamicVariablesAttribute": "deployment.environment",
+      "dynamicVariablesSource": "All telemetry",
+      "id": "var-env",
+      "modificationUUID": "env-mod-001",
+      "multiSelect": false,
+      "name": "deployment.environment",
+      "order": 0,
+      "queryValue": "SELECT JSONExtractString(labels, 'deployment.environment') AS `deployment.environment` FROM signoz_metrics.time_series_v4_1day WHERE (metric_name = 'signoz_calls_total') AND (unix_milli >= (toUnixTimestamp(now() - toIntervalDay(1)) * 1000)) GROUP BY `deployment.environment`",
+      "showALLOption": true,
+      "sort": "DISABLED",
+      "textboxValue": "",
+      "type": "DYNAMIC"
+    }
+  },
+  "version": "v5",
+  "widgets": [
+    {
+      "id": "row-http",
+      "panelTypes": "row",
+      "title": "HTTP API"
+    },
+    {
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "columnUnits": {},
+      "description": "Requests per second per operation — server spans only.",
+      "fillSpans": false,
+      "id": "http-rps",
+      "isStacked": false,
+      "mergeAllActiveQueries": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "disabled": false,
+              "expression": "A",
+              "functions": [],
+              "groupBy": [
+                { "dataType": "string", "id": "operation--string--tag--false", "isColumn": false, "isJSON": false, "key": "operation", "type": "tag" }
+              ],
+              "having": { "expression": "" },
+              "legend": "{{operation}}",
+              "limit": null,
+              "orderBy": [],
+              "queryName": "A",
+              "stepInterval": 60,
+              "aggregations": [
+                {
+                  "metricName": "signoz_calls_total",
+                  "temporality": null,
+                  "timeAggregation": "rate",
+                  "spaceAggregation": "sum",
+                  "reduceTo": "avg"
+                }
+              ],
+              "filter": {
+                "expression": "service_name = 'signoz-demo-order-service' AND span_kind = 'SPAN_KIND_SERVER'"
+              }
+            }
+          ],
+          "queryFormulas": []
+        },
+        "clickhouse_sql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "promql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "id": "http-rps-q",
+        "queryType": "builder"
+      },
+      "selectedLogFields": [
+        { "dataType": "string", "name": "body", "type": "" },
+        { "dataType": "string", "name": "timestamp", "type": "" }
+      ],
+      "selectedTracesFields": [
+        { "dataType": "string", "id": "serviceName--string--tag--true", "isColumn": true, "isJSON": false, "key": "serviceName", "type": "tag" },
+        { "dataType": "string", "id": "name--string--tag--true", "isColumn": true, "isJSON": false, "key": "name", "type": "tag" },
+        { "dataType": "float64", "id": "durationNano--float64--tag--true", "isColumn": true, "isJSON": false, "key": "durationNano", "type": "tag" }
+      ],
+      "softMax": 0,
+      "softMin": 0,
+      "stackedBarChart": false,
+      "thresholds": [],
+      "timePreferance": "GLOBAL_TIME",
+      "title": "Request Rate (RPS)",
+      "yAxisUnit": "reqps"
+    },
+    {
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "columnUnits": {},
+      "description": "Fraction of server spans with STATUS_CODE_ERROR.",
+      "fillSpans": false,
+      "id": "http-error-rate",
+      "isStacked": false,
+      "mergeAllActiveQueries": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "disabled": false,
+              "expression": "A",
+              "functions": [],
+              "groupBy": [
+                { "dataType": "string", "id": "operation--string--tag--false", "isColumn": false, "isJSON": false, "key": "operation", "type": "tag" }
+              ],
+              "having": { "expression": "" },
+              "legend": "errors {{operation}}",
+              "limit": null,
+              "orderBy": [],
+              "queryName": "A",
+              "stepInterval": 60,
+              "aggregations": [
+                {
+                  "metricName": "signoz_calls_total",
+                  "temporality": null,
+                  "timeAggregation": "rate",
+                  "spaceAggregation": "sum",
+                  "reduceTo": "avg"
+                }
+              ],
+              "filter": {
+                "expression": "service_name = 'signoz-demo-order-service' AND span_kind = 'SPAN_KIND_SERVER' AND status_code = 'STATUS_CODE_ERROR'"
+              }
+            },
+            {
+              "dataSource": "metrics",
+              "disabled": false,
+              "expression": "B",
+              "functions": [],
+              "groupBy": [
+                { "dataType": "string", "id": "operation--string--tag--false", "isColumn": false, "isJSON": false, "key": "operation", "type": "tag" }
+              ],
+              "having": { "expression": "" },
+              "legend": "total {{operation}}",
+              "limit": null,
+              "orderBy": [],
+              "queryName": "B",
+              "stepInterval": 60,
+              "aggregations": [
+                {
+                  "metricName": "signoz_calls_total",
+                  "temporality": null,
+                  "timeAggregation": "rate",
+                  "spaceAggregation": "sum",
+                  "reduceTo": "avg"
+                }
+              ],
+              "filter": {
+                "expression": "service_name = 'signoz-demo-order-service' AND span_kind = 'SPAN_KIND_SERVER'"
+              }
+            }
+          ],
+          "queryFormulas": [
+            { "disabled": false, "expression": "A/B", "legend": "error_rate {{operation}}", "queryName": "F1" }
+          ]
+        },
+        "clickhouse_sql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "promql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "id": "http-error-rate-q",
+        "queryType": "builder"
+      },
+      "selectedLogFields": [
+        { "dataType": "string", "name": "body", "type": "" },
+        { "dataType": "string", "name": "timestamp", "type": "" }
+      ],
+      "selectedTracesFields": [
+        { "dataType": "string", "id": "serviceName--string--tag--true", "isColumn": true, "isJSON": false, "key": "serviceName", "type": "tag" }
+      ],
+      "softMax": 0,
+      "softMin": 0,
+      "stackedBarChart": false,
+      "thresholds": [],
+      "timePreferance": "GLOBAL_TIME",
+      "title": "HTTP Error Rate (%)",
+      "yAxisUnit": "percentunit"
+    },
+    {
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "columnUnits": {},
+      "description": "P95 and P50 request latency per operation from signoz_latency.bucket.",
+      "fillSpans": false,
+      "id": "http-p95-latency",
+      "isStacked": false,
+      "mergeAllActiveQueries": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "disabled": false,
+              "expression": "A",
+              "functions": [],
+              "groupBy": [
+                { "dataType": "string", "id": "operation--string--tag--false", "isColumn": false, "isJSON": false, "key": "operation", "type": "tag" }
+              ],
+              "having": { "expression": "" },
+              "legend": "p95 {{operation}}",
+              "limit": null,
+              "orderBy": [],
+              "queryName": "A",
+              "stepInterval": 60,
+              "aggregations": [
+                {
+                  "metricName": "signoz_latency.bucket",
+                  "temporality": null,
+                  "timeAggregation": "",
+                  "spaceAggregation": "p95",
+                  "reduceTo": "avg"
+                }
+              ],
+              "filter": {
+                "expression": "service_name = 'signoz-demo-order-service' AND span_kind = 'SPAN_KIND_SERVER'"
+              }
+            }
+          ],
+          "queryFormulas": []
+        },
+        "clickhouse_sql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "promql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "id": "http-p95-latency-q",
+        "queryType": "builder"
+      },
+      "selectedLogFields": [
+        { "dataType": "string", "name": "body", "type": "" },
+        { "dataType": "string", "name": "timestamp", "type": "" }
+      ],
+      "selectedTracesFields": [],
+      "softMax": 0,
+      "softMin": 0,
+      "stackedBarChart": false,
+      "thresholds": [],
+      "timePreferance": "GLOBAL_TIME",
+      "title": "P95 Latency — HTTP (ms)",
+      "yAxisUnit": "ms"
+    },
+    {
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "columnUnits": {},
+      "description": "Median request latency per operation.",
+      "fillSpans": false,
+      "id": "http-p50-latency",
+      "isStacked": false,
+      "mergeAllActiveQueries": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "disabled": false,
+              "expression": "A",
+              "functions": [],
+              "groupBy": [
+                { "dataType": "string", "id": "operation--string--tag--false", "isColumn": false, "isJSON": false, "key": "operation", "type": "tag" }
+              ],
+              "having": { "expression": "" },
+              "legend": "p50 {{operation}}",
+              "limit": null,
+              "orderBy": [],
+              "queryName": "A",
+              "stepInterval": 60,
+              "aggregations": [
+                {
+                  "metricName": "signoz_latency.bucket",
+                  "temporality": null,
+                  "timeAggregation": "",
+                  "spaceAggregation": "p50",
+                  "reduceTo": "avg"
+                }
+              ],
+              "filter": {
+                "expression": "service_name = 'signoz-demo-order-service' AND span_kind = 'SPAN_KIND_SERVER'"
+              }
+            }
+          ],
+          "queryFormulas": []
+        },
+        "clickhouse_sql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "promql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "id": "http-p50-latency-q",
+        "queryType": "builder"
+      },
+      "selectedLogFields": [
+        { "dataType": "string", "name": "body", "type": "" },
+        { "dataType": "string", "name": "timestamp", "type": "" }
+      ],
+      "selectedTracesFields": [],
+      "softMax": 0,
+      "softMin": 0,
+      "stackedBarChart": false,
+      "thresholds": [],
+      "timePreferance": "GLOBAL_TIME",
+      "title": "P50 Latency / Median — HTTP (ms)",
+      "yAxisUnit": "ms"
+    },
+    {
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "columnUnits": { "B": "ns", "C": "ns" },
+      "description": "Table of all operations: call count, P50, P95, and error count from traces.",
+      "fillSpans": false,
+      "id": "http-top-endpoints",
+      "isStacked": false,
+      "mergeAllActiveQueries": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "table",
+      "query": {
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "traces",
+              "disabled": false,
+              "expression": "A",
+              "functions": [],
+              "groupBy": [
+                { "dataType": "string", "id": "name--string--tag--true", "isColumn": true, "isJSON": false, "key": "name", "type": "tag" },
+                { "dataType": "string", "id": "httpMethod--string--tag--true", "isColumn": true, "isJSON": false, "key": "httpMethod", "type": "tag" }
+              ],
+              "having": { "expression": "" },
+              "legend": "Total Calls",
+              "limit": null,
+              "orderBy": [],
+              "queryName": "A",
+              "stepInterval": 60,
+              "aggregations": [{ "expression": "count()" }],
+              "filter": { "expression": "serviceName = 'signoz-demo-order-service' AND kind = 2" }
+            },
+            {
+              "dataSource": "traces",
+              "disabled": false,
+              "expression": "B",
+              "functions": [],
+              "groupBy": [
+                { "dataType": "string", "id": "name--string--tag--true", "isColumn": true, "isJSON": false, "key": "name", "type": "tag" },
+                { "dataType": "string", "id": "httpMethod--string--tag--true", "isColumn": true, "isJSON": false, "key": "httpMethod", "type": "tag" }
+              ],
+              "having": { "expression": "" },
+              "legend": "P50 Duration",
+              "limit": null,
+              "orderBy": [],
+              "queryName": "B",
+              "stepInterval": 60,
+              "aggregations": [{ "expression": "p50(durationNano)" }],
+              "filter": { "expression": "serviceName = 'signoz-demo-order-service' AND kind = 2" }
+            },
+            {
+              "dataSource": "traces",
+              "disabled": false,
+              "expression": "C",
+              "functions": [],
+              "groupBy": [
+                { "dataType": "string", "id": "name--string--tag--true", "isColumn": true, "isJSON": false, "key": "name", "type": "tag" },
+                { "dataType": "string", "id": "httpMethod--string--tag--true", "isColumn": true, "isJSON": false, "key": "httpMethod", "type": "tag" }
+              ],
+              "having": { "expression": "" },
+              "legend": "P95 Duration",
+              "limit": null,
+              "orderBy": [],
+              "queryName": "C",
+              "stepInterval": 60,
+              "aggregations": [{ "expression": "p95(durationNano)" }],
+              "filter": { "expression": "serviceName = 'signoz-demo-order-service' AND kind = 2" }
+            },
+            {
+              "dataSource": "traces",
+              "disabled": false,
+              "expression": "D",
+              "functions": [],
+              "groupBy": [
+                { "dataType": "string", "id": "name--string--tag--true", "isColumn": true, "isJSON": false, "key": "name", "type": "tag" }
+              ],
+              "having": { "expression": "" },
+              "legend": "Errors",
+              "limit": null,
+              "orderBy": [],
+              "queryName": "D",
+              "stepInterval": 60,
+              "aggregations": [{ "expression": "count()" }],
+              "filter": { "expression": "serviceName = 'signoz-demo-order-service' AND kind = 2 AND hasError = 'true'" }
+            }
+          ],
+          "queryFormulas": []
+        },
+        "clickhouse_sql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "promql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "id": "http-top-endpoints-q",
+        "queryType": "builder"
+      },
+      "selectedLogFields": [
+        { "dataType": "string", "name": "body", "type": "" },
+        { "dataType": "string", "name": "timestamp", "type": "" }
+      ],
+      "selectedTracesFields": [
+        { "dataType": "string", "id": "serviceName--string--tag--true", "isColumn": true, "isJSON": false, "key": "serviceName", "type": "tag" },
+        { "dataType": "string", "id": "name--string--tag--true", "isColumn": true, "isJSON": false, "key": "name", "type": "tag" },
+        { "dataType": "float64", "id": "durationNano--float64--tag--true", "isColumn": true, "isJSON": false, "key": "durationNano", "type": "tag" },
+        { "dataType": "string", "id": "httpMethod--string--tag--true", "isColumn": true, "isJSON": false, "key": "httpMethod", "type": "tag" },
+        { "dataType": "string", "id": "responseStatusCode--string--tag--true", "isColumn": true, "isJSON": false, "key": "responseStatusCode", "type": "tag" }
+      ],
+      "softMax": 0,
+      "softMin": 0,
+      "stackedBarChart": false,
+      "thresholds": [],
+      "timePreferance": "GLOBAL_TIME",
+      "title": "Top HTTP Endpoints — Calls / P50 / P95 / Errors",
+      "yAxisUnit": "none"
+    },
+    {
+      "id": "row-business",
+      "panelTypes": "row",
+      "title": "Business Metrics"
+    },
+    {
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "columnUnits": {},
+      "description": "Rate of successfully created orders from orders_created_total.",
+      "fillSpans": false,
+      "id": "orders-created",
+      "isStacked": false,
+      "mergeAllActiveQueries": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "disabled": false,
+              "expression": "A",
+              "functions": [],
+              "groupBy": [],
+              "having": { "expression": "" },
+              "legend": "orders/s",
+              "limit": null,
+              "orderBy": [],
+              "queryName": "A",
+              "stepInterval": 60,
+              "aggregations": [
+                {
+                  "metricName": "orders_created_total",
+                  "temporality": null,
+                  "timeAggregation": "rate",
+                  "spaceAggregation": "sum",
+                  "reduceTo": "avg"
+                }
+              ],
+              "filter": { "expression": "" }
+            }
+          ],
+          "queryFormulas": []
+        },
+        "clickhouse_sql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "promql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "id": "orders-created-q",
+        "queryType": "builder"
+      },
+      "selectedLogFields": [
+        { "dataType": "string", "name": "body", "type": "" },
+        { "dataType": "string", "name": "timestamp", "type": "" }
+      ],
+      "selectedTracesFields": [],
+      "softMax": 0,
+      "softMin": 0,
+      "stackedBarChart": false,
+      "thresholds": [],
+      "timePreferance": "GLOBAL_TIME",
+      "title": "Orders Created — Rate",
+      "yAxisUnit": "reqps"
+    },
+    {
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "columnUnits": {},
+      "description": "Rate of CreateOrder failures from order_errors_total.",
+      "fillSpans": false,
+      "id": "order-errors",
+      "isStacked": false,
+      "mergeAllActiveQueries": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "disabled": false,
+              "expression": "A",
+              "functions": [],
+              "groupBy": [
+                { "dataType": "string", "id": "error_type--string--tag--false", "isColumn": false, "isJSON": false, "key": "error_type", "type": "tag" }
+              ],
+              "having": { "expression": "" },
+              "legend": "{{error_type}}",
+              "limit": null,
+              "orderBy": [],
+              "queryName": "A",
+              "stepInterval": 60,
+              "aggregations": [
+                {
+                  "metricName": "order_errors_total",
+                  "temporality": null,
+                  "timeAggregation": "rate",
+                  "spaceAggregation": "sum",
+                  "reduceTo": "avg"
+                }
+              ],
+              "filter": { "expression": "" }
+            }
+          ],
+          "queryFormulas": []
+        },
+        "clickhouse_sql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "promql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "id": "order-errors-q",
+        "queryType": "builder"
+      },
+      "selectedLogFields": [
+        { "dataType": "string", "name": "body", "type": "" },
+        { "dataType": "string", "name": "timestamp", "type": "" }
+      ],
+      "selectedTracesFields": [],
+      "softMax": 0,
+      "softMin": 0,
+      "stackedBarChart": false,
+      "thresholds": [],
+      "timePreferance": "GLOBAL_TIME",
+      "title": "Order Errors — Rate by Error Type",
+      "yAxisUnit": "reqps"
+    },
+    {
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "columnUnits": {},
+      "description": "End-to-end latency of the CreateOrder use case — P95 and P50 from order_create_duration_seconds.",
+      "fillSpans": false,
+      "id": "order-duration",
+      "isStacked": false,
+      "mergeAllActiveQueries": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "disabled": false,
+              "expression": "A",
+              "functions": [],
+              "groupBy": [],
+              "having": { "expression": "" },
+              "legend": "p95",
+              "limit": null,
+              "orderBy": [],
+              "queryName": "A",
+              "stepInterval": 60,
+              "aggregations": [
+                {
+                  "metricName": "order_create_duration_seconds.bucket",
+                  "temporality": null,
+                  "timeAggregation": "",
+                  "spaceAggregation": "p95",
+                  "reduceTo": "avg"
+                }
+              ],
+              "filter": { "expression": "" }
+            },
+            {
+              "dataSource": "metrics",
+              "disabled": false,
+              "expression": "B",
+              "functions": [],
+              "groupBy": [],
+              "having": { "expression": "" },
+              "legend": "p50",
+              "limit": null,
+              "orderBy": [],
+              "queryName": "B",
+              "stepInterval": 60,
+              "aggregations": [
+                {
+                  "metricName": "order_create_duration_seconds.bucket",
+                  "temporality": null,
+                  "timeAggregation": "",
+                  "spaceAggregation": "p50",
+                  "reduceTo": "avg"
+                }
+              ],
+              "filter": { "expression": "" }
+            }
+          ],
+          "queryFormulas": []
+        },
+        "clickhouse_sql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "promql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "id": "order-duration-q",
+        "queryType": "builder"
+      },
+      "selectedLogFields": [
+        { "dataType": "string", "name": "body", "type": "" },
+        { "dataType": "string", "name": "timestamp", "type": "" }
+      ],
+      "selectedTracesFields": [],
+      "softMax": 0,
+      "softMin": 0,
+      "stackedBarChart": false,
+      "thresholds": [],
+      "timePreferance": "GLOBAL_TIME",
+      "title": "Order Create Duration — P50 / P95 (s)",
+      "yAxisUnit": "s"
+    },
+    {
+      "id": "row-db",
+      "panelTypes": "row",
+      "title": "DB Call Metrics (SQLite)"
+    },
+    {
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "columnUnits": {},
+      "description": "P95 latency of SQLite operations by db.operation from db_operation_duration_seconds.",
+      "fillSpans": false,
+      "id": "db-duration",
+      "isStacked": false,
+      "mergeAllActiveQueries": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "disabled": false,
+              "expression": "A",
+              "functions": [],
+              "groupBy": [
+                { "dataType": "string", "id": "db.operation--string--tag--false", "isColumn": false, "isJSON": false, "key": "db.operation", "type": "tag" }
+              ],
+              "having": { "expression": "" },
+              "legend": "p95 {{db.operation}}",
+              "limit": null,
+              "orderBy": [],
+              "queryName": "A",
+              "stepInterval": 60,
+              "aggregations": [
+                {
+                  "metricName": "db_operation_duration_seconds.bucket",
+                  "temporality": null,
+                  "timeAggregation": "",
+                  "spaceAggregation": "p95",
+                  "reduceTo": "avg"
+                }
+              ],
+              "filter": { "expression": "" }
+            }
+          ],
+          "queryFormulas": []
+        },
+        "clickhouse_sql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "promql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "id": "db-duration-q",
+        "queryType": "builder"
+      },
+      "selectedLogFields": [
+        { "dataType": "string", "name": "body", "type": "" },
+        { "dataType": "string", "name": "timestamp", "type": "" }
+      ],
+      "selectedTracesFields": [],
+      "softMax": 0,
+      "softMin": 0,
+      "stackedBarChart": false,
+      "thresholds": [],
+      "timePreferance": "GLOBAL_TIME",
+      "title": "DB Operation Latency — P95 (s)",
+      "yAxisUnit": "s"
+    },
+    {
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "columnUnits": {},
+      "description": "Call rate split by db.operation and db.status (ok|error) from db_calls_total.",
+      "fillSpans": false,
+      "id": "db-calls-total",
+      "isStacked": false,
+      "mergeAllActiveQueries": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "disabled": false,
+              "expression": "A",
+              "functions": [],
+              "groupBy": [
+                { "dataType": "string", "id": "db.operation--string--tag--false", "isColumn": false, "isJSON": false, "key": "db.operation", "type": "tag" },
+                { "dataType": "string", "id": "db.status--string--tag--false", "isColumn": false, "isJSON": false, "key": "db.status", "type": "tag" }
+              ],
+              "having": { "expression": "" },
+              "legend": "{{db.operation}} / {{db.status}}",
+              "limit": null,
+              "orderBy": [],
+              "queryName": "A",
+              "stepInterval": 60,
+              "aggregations": [
+                {
+                  "metricName": "db_calls_total",
+                  "temporality": null,
+                  "timeAggregation": "rate",
+                  "spaceAggregation": "sum",
+                  "reduceTo": "avg"
+                }
+              ],
+              "filter": { "expression": "" }
+            }
+          ],
+          "queryFormulas": []
+        },
+        "clickhouse_sql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "promql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "id": "db-calls-total-q",
+        "queryType": "builder"
+      },
+      "selectedLogFields": [
+        { "dataType": "string", "name": "body", "type": "" },
+        { "dataType": "string", "name": "timestamp", "type": "" }
+      ],
+      "selectedTracesFields": [],
+      "softMax": 0,
+      "softMin": 0,
+      "stackedBarChart": false,
+      "thresholds": [],
+      "timePreferance": "GLOBAL_TIME",
+      "title": "DB Calls — Rate by Operation & Status",
+      "yAxisUnit": "reqps"
+    },
+    {
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "columnUnits": {},
+      "description": "Rate of SQLite errors per operation type from db_errors_total.",
+      "fillSpans": false,
+      "id": "db-errors",
+      "isStacked": false,
+      "mergeAllActiveQueries": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "disabled": false,
+              "expression": "A",
+              "functions": [],
+              "groupBy": [
+                { "dataType": "string", "id": "db.operation--string--tag--false", "isColumn": false, "isJSON": false, "key": "db.operation", "type": "tag" }
+              ],
+              "having": { "expression": "" },
+              "legend": "errors {{db.operation}}",
+              "limit": null,
+              "orderBy": [],
+              "queryName": "A",
+              "stepInterval": 60,
+              "aggregations": [
+                {
+                  "metricName": "db_errors_total",
+                  "temporality": null,
+                  "timeAggregation": "rate",
+                  "spaceAggregation": "sum",
+                  "reduceTo": "avg"
+                }
+              ],
+              "filter": { "expression": "" }
+            }
+          ],
+          "queryFormulas": []
+        },
+        "clickhouse_sql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "promql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "id": "db-errors-q",
+        "queryType": "builder"
+      },
+      "selectedLogFields": [
+        { "dataType": "string", "name": "body", "type": "" },
+        { "dataType": "string", "name": "timestamp", "type": "" }
+      ],
+      "selectedTracesFields": [],
+      "softMax": 0,
+      "softMin": 0,
+      "stackedBarChart": false,
+      "thresholds": [],
+      "timePreferance": "GLOBAL_TIME",
+      "title": "DB Errors — Rate by Operation",
+      "yAxisUnit": "reqps"
+    },
+    {
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "columnUnits": {},
+      "description": "Rate of rows written to SQLite (INSERT) from db_rows_affected_total.",
+      "fillSpans": false,
+      "id": "db-rows-affected",
+      "isStacked": false,
+      "mergeAllActiveQueries": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "disabled": false,
+              "expression": "A",
+              "functions": [],
+              "groupBy": [
+                { "dataType": "string", "id": "db.operation--string--tag--false", "isColumn": false, "isJSON": false, "key": "db.operation", "type": "tag" }
+              ],
+              "having": { "expression": "" },
+              "legend": "rows written {{db.operation}}",
+              "limit": null,
+              "orderBy": [],
+              "queryName": "A",
+              "stepInterval": 60,
+              "aggregations": [
+                {
+                  "metricName": "db_rows_affected_total",
+                  "temporality": null,
+                  "timeAggregation": "rate",
+                  "spaceAggregation": "sum",
+                  "reduceTo": "avg"
+                }
+              ],
+              "filter": { "expression": "" }
+            }
+          ],
+          "queryFormulas": []
+        },
+        "clickhouse_sql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "promql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "id": "db-rows-affected-q",
+        "queryType": "builder"
+      },
+      "selectedLogFields": [
+        { "dataType": "string", "name": "body", "type": "" },
+        { "dataType": "string", "name": "timestamp", "type": "" }
+      ],
+      "selectedTracesFields": [],
+      "softMax": 0,
+      "softMin": 0,
+      "stackedBarChart": false,
+      "thresholds": [],
+      "timePreferance": "GLOBAL_TIME",
+      "title": "DB Rows Affected — Rate (Writes)",
+      "yAxisUnit": "reqps"
+    },
+    {
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "columnUnits": {},
+      "description": "Rate of rows read from SQLite SELECT operations from db_rows_returned_total.",
+      "fillSpans": false,
+      "id": "db-rows-returned",
+      "isStacked": false,
+      "mergeAllActiveQueries": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "disabled": false,
+              "expression": "A",
+              "functions": [],
+              "groupBy": [
+                { "dataType": "string", "id": "db.operation--string--tag--false", "isColumn": false, "isJSON": false, "key": "db.operation", "type": "tag" }
+              ],
+              "having": { "expression": "" },
+              "legend": "rows read {{db.operation}}",
+              "limit": null,
+              "orderBy": [],
+              "queryName": "A",
+              "stepInterval": 60,
+              "aggregations": [
+                {
+                  "metricName": "db_rows_returned_total",
+                  "temporality": null,
+                  "timeAggregation": "rate",
+                  "spaceAggregation": "sum",
+                  "reduceTo": "avg"
+                }
+              ],
+              "filter": { "expression": "" }
+            }
+          ],
+          "queryFormulas": []
+        },
+        "clickhouse_sql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "promql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "id": "db-rows-returned-q",
+        "queryType": "builder"
+      },
+      "selectedLogFields": [
+        { "dataType": "string", "name": "body", "type": "" },
+        { "dataType": "string", "name": "timestamp", "type": "" }
+      ],
+      "selectedTracesFields": [],
+      "softMax": 0,
+      "softMin": 0,
+      "stackedBarChart": false,
+      "thresholds": [],
+      "timePreferance": "GLOBAL_TIME",
+      "title": "DB Rows Returned — Rate (Reads)",
+      "yAxisUnit": "reqps"
+    },
+    {
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "columnUnits": {},
+      "description": "Fraction of DB spans with hasError=true grouped by dbName — from trace data.",
+      "fillSpans": false,
+      "id": "db-error-rate-trace",
+      "isStacked": false,
+      "mergeAllActiveQueries": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "traces",
+              "disabled": true,
+              "expression": "A",
+              "functions": [],
+              "groupBy": [
+                { "dataType": "string", "id": "dbName--string--tag--true", "isColumn": true, "isJSON": false, "key": "dbName" }
+              ],
+              "having": { "expression": "" },
+              "legend": "",
+              "limit": null,
+              "orderBy": [],
+              "queryName": "A",
+              "stepInterval": 60,
+              "aggregations": [{ "expression": "count()" }],
+              "filter": { "expression": "dbSystem EXISTS AND serviceName = 'signoz-demo-order-service' AND hasError = 'true' AND dbName EXISTS" }
+            },
+            {
+              "dataSource": "traces",
+              "disabled": true,
+              "expression": "B",
+              "functions": [],
+              "groupBy": [
+                { "dataType": "string", "id": "dbName--string--tag--true", "isColumn": true, "isJSON": false, "key": "dbName" }
+              ],
+              "having": { "expression": "" },
+              "legend": "",
+              "limit": null,
+              "orderBy": [],
+              "queryName": "B",
+              "stepInterval": 60,
+              "aggregations": [{ "expression": "count()" }],
+              "filter": { "expression": "dbSystem EXISTS AND serviceName = 'signoz-demo-order-service' AND dbName EXISTS" }
+            }
+          ],
+          "queryFormulas": [
+            { "disabled": false, "expression": "(A/B)", "legend": "{{dbName}}", "queryName": "F1" }
+          ]
+        },
+        "clickhouse_sql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "promql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "id": "db-error-rate-trace-q",
+        "queryType": "builder"
+      },
+      "selectedLogFields": [
+        { "dataType": "string", "name": "body", "type": "" },
+        { "dataType": "string", "name": "timestamp", "type": "" }
+      ],
+      "selectedTracesFields": [
+        { "dataType": "string", "id": "serviceName--string--tag--true", "isColumn": true, "isJSON": false, "key": "serviceName", "type": "tag" },
+        { "dataType": "string", "id": "name--string--tag--true", "isColumn": true, "isJSON": false, "key": "name", "type": "tag" },
+        { "dataType": "float64", "id": "durationNano--float64--tag--true", "isColumn": true, "isJSON": false, "key": "durationNano", "type": "tag" }
+      ],
+      "softMax": 0,
+      "softMin": 0,
+      "stackedBarChart": false,
+      "thresholds": [],
+      "timePreferance": "GLOBAL_TIME",
+      "title": "DB Error Rate (Traces)",
+      "yAxisUnit": "percent"
+    },
+    {
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "columnUnits": { "B": "ns" },
+      "description": "The 10 slowest DB spans ordered by duration — from trace data.",
+      "fillSpans": false,
+      "id": "db-slowest-calls",
+      "isStacked": false,
+      "mergeAllActiveQueries": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "list",
+      "query": {
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "traces",
+              "disabled": false,
+              "expression": "B",
+              "functions": [],
+              "groupBy": [],
+              "having": { "expression": "" },
+              "legend": "",
+              "limit": null,
+              "offset": 0,
+              "orderBy": [{ "columnName": "durationNano", "order": "desc" }],
+              "pageSize": 10,
+              "queryName": "B",
+              "stepInterval": 60,
+              "filter": { "expression": "dbSystem EXISTS AND serviceName = 'signoz-demo-order-service'" }
+            }
+          ],
+          "queryFormulas": []
+        },
+        "clickhouse_sql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "promql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "id": "db-slowest-calls-q",
+        "queryType": "builder"
+      },
+      "selectedLogFields": [
+        { "dataType": "string", "name": "body", "type": "" },
+        { "dataType": "string", "name": "timestamp", "type": "" }
+      ],
+      "selectedTracesFields": [
+        { "dataType": "string", "id": "serviceName--string--tag--true", "isColumn": true, "isJSON": false, "key": "serviceName", "type": "tag" },
+        { "dataType": "string", "id": "name--string--tag--true", "isColumn": true, "isJSON": false, "key": "name", "type": "tag" },
+        { "dataType": "float64", "id": "durationNano--float64--tag--true", "isColumn": true, "isJSON": false, "key": "durationNano", "type": "tag" },
+        { "dataType": "string", "id": "db.statement--string--tag--false", "isColumn": false, "isJSON": false, "key": "db.statement", "type": "tag" },
+        { "dataType": "string", "id": "dbOperation--string--tag--true", "isColumn": true, "isJSON": false, "key": "dbOperation", "type": "tag" }
+      ],
+      "softMax": 0,
+      "softMin": 0,
+      "stackedBarChart": false,
+      "thresholds": [],
+      "timePreferance": "GLOBAL_TIME",
+      "title": "Slowest DB Calls (Top 10)",
+      "yAxisUnit": "none"
+    },
+    {
+      "id": "row-external",
+      "panelTypes": "row",
+      "title": "External Call Metrics"
+    },
+    {
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "columnUnits": {},
+      "description": "P95 latency of outbound HTTP/gRPC calls from external_call_duration_seconds. Populates once external calls are wired.",
+      "fillSpans": false,
+      "id": "ext-duration",
+      "isStacked": false,
+      "mergeAllActiveQueries": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "disabled": false,
+              "expression": "A",
+              "functions": [],
+              "groupBy": [
+                { "dataType": "string", "id": "external.target--string--tag--false", "isColumn": false, "isJSON": false, "key": "external.target", "type": "tag" },
+                { "dataType": "string", "id": "http.method--string--tag--false", "isColumn": false, "isJSON": false, "key": "http.method", "type": "tag" }
+              ],
+              "having": { "expression": "" },
+              "legend": "p95 {{external.target}} {{http.method}}",
+              "limit": null,
+              "orderBy": [],
+              "queryName": "A",
+              "stepInterval": 60,
+              "aggregations": [
+                {
+                  "metricName": "external_call_duration_seconds.bucket",
+                  "temporality": null,
+                  "timeAggregation": "",
+                  "spaceAggregation": "p95",
+                  "reduceTo": "avg"
+                }
+              ],
+              "filter": { "expression": "" }
+            }
+          ],
+          "queryFormulas": []
+        },
+        "clickhouse_sql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "promql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "id": "ext-duration-q",
+        "queryType": "builder"
+      },
+      "selectedLogFields": [
+        { "dataType": "string", "name": "body", "type": "" },
+        { "dataType": "string", "name": "timestamp", "type": "" }
+      ],
+      "selectedTracesFields": [],
+      "softMax": 0,
+      "softMin": 0,
+      "stackedBarChart": false,
+      "thresholds": [],
+      "timePreferance": "GLOBAL_TIME",
+      "title": "External Call Latency — P95 (s)",
+      "yAxisUnit": "s"
+    },
+    {
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "columnUnits": {},
+      "description": "Call rate from external_calls_total split by external.target, http.method, http.status_code.",
+      "fillSpans": false,
+      "id": "ext-calls-total",
+      "isStacked": false,
+      "mergeAllActiveQueries": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "disabled": false,
+              "expression": "A",
+              "functions": [],
+              "groupBy": [
+                { "dataType": "string", "id": "external.target--string--tag--false", "isColumn": false, "isJSON": false, "key": "external.target", "type": "tag" },
+                { "dataType": "string", "id": "http.method--string--tag--false", "isColumn": false, "isJSON": false, "key": "http.method", "type": "tag" },
+                { "dataType": "int64",  "id": "http.status_code--int64--tag--false", "isColumn": false, "isJSON": false, "key": "http.status_code", "type": "tag" }
+              ],
+              "having": { "expression": "" },
+              "legend": "{{external.target}} {{http.method}} {{http.status_code}}",
+              "limit": null,
+              "orderBy": [],
+              "queryName": "A",
+              "stepInterval": 60,
+              "aggregations": [
+                {
+                  "metricName": "external_calls_total",
+                  "temporality": null,
+                  "timeAggregation": "rate",
+                  "spaceAggregation": "sum",
+                  "reduceTo": "avg"
+                }
+              ],
+              "filter": { "expression": "" }
+            }
+          ],
+          "queryFormulas": []
+        },
+        "clickhouse_sql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "promql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "id": "ext-calls-total-q",
+        "queryType": "builder"
+      },
+      "selectedLogFields": [
+        { "dataType": "string", "name": "body", "type": "" },
+        { "dataType": "string", "name": "timestamp", "type": "" }
+      ],
+      "selectedTracesFields": [],
+      "softMax": 0,
+      "softMin": 0,
+      "stackedBarChart": false,
+      "thresholds": [],
+      "timePreferance": "GLOBAL_TIME",
+      "title": "External Calls — Rate by Target & Status",
+      "yAxisUnit": "reqps"
+    },
+    {
+      "bucketCount": 30,
+      "bucketWidth": 0,
+      "columnUnits": {},
+      "description": "Rate of failed outbound calls from external_call_errors_total.",
+      "fillSpans": false,
+      "id": "ext-call-errors",
+      "isStacked": false,
+      "mergeAllActiveQueries": false,
+      "nullZeroValues": "zero",
+      "opacity": "1",
+      "panelTypes": "graph",
+      "query": {
+        "builder": {
+          "queryData": [
+            {
+              "dataSource": "metrics",
+              "disabled": false,
+              "expression": "A",
+              "functions": [],
+              "groupBy": [
+                { "dataType": "string", "id": "external.target--string--tag--false", "isColumn": false, "isJSON": false, "key": "external.target", "type": "tag" },
+                { "dataType": "string", "id": "http.method--string--tag--false", "isColumn": false, "isJSON": false, "key": "http.method", "type": "tag" }
+              ],
+              "having": { "expression": "" },
+              "legend": "errors {{external.target}} {{http.method}}",
+              "limit": null,
+              "orderBy": [],
+              "queryName": "A",
+              "stepInterval": 60,
+              "aggregations": [
+                {
+                  "metricName": "external_call_errors_total",
+                  "temporality": null,
+                  "timeAggregation": "rate",
+                  "spaceAggregation": "sum",
+                  "reduceTo": "avg"
+                }
+              ],
+              "filter": { "expression": "" }
+            }
+          ],
+          "queryFormulas": []
+        },
+        "clickhouse_sql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "promql": [{ "disabled": false, "legend": "", "name": "A", "query": "" }],
+        "id": "ext-call-errors-q",
+        "queryType": "builder"
+      },
+      "selectedLogFields": [
+        { "dataType": "string", "name": "body", "type": "" },
+        { "dataType": "string", "name": "timestamp", "type": "" }
+      ],
+      "selectedTracesFields": [],
+      "softMax": 0,
+      "softMin": 0,
+      "stackedBarChart": false,
+      "thresholds": [],
+      "timePreferance": "GLOBAL_TIME",
+      "title": "External Call Errors — Rate by Target",
+      "yAxisUnit": "reqps"
+    }
+  ],
+  "uuid": "signoz-demo-order-service-full-v2"
+}

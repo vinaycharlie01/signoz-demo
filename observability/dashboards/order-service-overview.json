@@ -1,0 +1,450 @@
+{
+  "title": "signoz-demo — Order Service Overview",
+  "description": "Key metrics for the signoz-demo Order Service: request rate, error rate, P95 latency, custom business metrics, granular DB call metrics, and external call metrics.",
+  "tags": ["signoz-demo", "order-service", "k3d"],
+  "layout": [
+    { "i": "rps",                  "x": 0,  "y": 0,  "w": 6,  "h": 2 },
+    { "i": "error_rate",           "x": 6,  "y": 0,  "w": 6,  "h": 2 },
+    { "i": "p95_latency",          "x": 0,  "y": 2,  "w": 6,  "h": 2 },
+    { "i": "p50_latency",          "x": 6,  "y": 2,  "w": 6,  "h": 2 },
+    { "i": "orders_total",         "x": 0,  "y": 4,  "w": 6,  "h": 2 },
+    { "i": "order_errors",         "x": 6,  "y": 4,  "w": 6,  "h": 2 },
+    { "i": "db_duration",          "x": 0,  "y": 6,  "w": 12, "h": 2 },
+    { "i": "db_calls_total",       "x": 0,  "y": 8,  "w": 6,  "h": 2 },
+    { "i": "db_errors_total",      "x": 6,  "y": 8,  "w": 6,  "h": 2 },
+    { "i": "db_rows_affected",     "x": 0,  "y": 10, "w": 6,  "h": 2 },
+    { "i": "db_rows_returned",     "x": 6,  "y": 10, "w": 6,  "h": 2 },
+    { "i": "ext_duration",         "x": 0,  "y": 12, "w": 6,  "h": 2 },
+    { "i": "ext_calls_total",      "x": 6,  "y": 12, "w": 6,  "h": 2 },
+    { "i": "ext_call_errors",      "x": 0,  "y": 14, "w": 6,  "h": 2 }
+  ],
+  "panels": [
+    {
+      "id": "rps",
+      "title": "Request Rate (RPS)",
+      "description": "Requests per second for all server spans",
+      "panelTypes": "graph",
+      "yAxisUnit": "reqps",
+      "query": {
+        "queryType": "builder",
+        "panelType": "graph",
+        "builderQueries": {
+          "A": {
+            "queryName": "A",
+            "dataSource": "metrics",
+            "expression": "A",
+            "disabled": false,
+            "metric": "signoz_calls_total",
+            "stepInterval": 60,
+            "filters": {
+              "op": "AND",
+              "items": [
+                { "key": { "key": "service_name", "type": "tag" }, "op": "=", "value": "signoz-demo-order-service" },
+                { "key": { "key": "span_kind",    "type": "tag" }, "op": "=", "value": "SPAN_KIND_SERVER" }
+              ]
+            },
+            "groupBy": [{ "key": "operation", "type": "tag" }],
+            "legend": "{{operation}}",
+            "timeAggregation": "rate",
+            "spaceAggregation": "sum"
+          }
+        }
+      }
+    },
+    {
+      "id": "error_rate",
+      "title": "Error Rate (%)",
+      "description": "% of requests ending in STATUS_CODE_ERROR",
+      "panelTypes": "graph",
+      "yAxisUnit": "percentunit",
+      "query": {
+        "queryType": "builder",
+        "panelType": "graph",
+        "builderQueries": {
+          "A": {
+            "queryName": "A",
+            "dataSource": "metrics",
+            "expression": "A",
+            "disabled": false,
+            "metric": "signoz_calls_total",
+            "stepInterval": 60,
+            "filters": {
+              "op": "AND",
+              "items": [
+                { "key": { "key": "service_name", "type": "tag" }, "op": "=", "value": "signoz-demo-order-service" },
+                { "key": { "key": "span_kind",    "type": "tag" }, "op": "=", "value": "SPAN_KIND_SERVER" },
+                { "key": { "key": "status_code",  "type": "tag" }, "op": "=", "value": "STATUS_CODE_ERROR" }
+              ]
+            },
+            "groupBy": [{ "key": "operation", "type": "tag" }],
+            "legend": "errors {{operation}}",
+            "timeAggregation": "rate",
+            "spaceAggregation": "sum"
+          },
+          "B": {
+            "queryName": "B",
+            "dataSource": "metrics",
+            "expression": "B",
+            "disabled": false,
+            "metric": "signoz_calls_total",
+            "stepInterval": 60,
+            "filters": {
+              "op": "AND",
+              "items": [
+                { "key": { "key": "service_name", "type": "tag" }, "op": "=", "value": "signoz-demo-order-service" },
+                { "key": { "key": "span_kind",    "type": "tag" }, "op": "=", "value": "SPAN_KIND_SERVER" }
+              ]
+            },
+            "groupBy": [{ "key": "operation", "type": "tag" }],
+            "legend": "total {{operation}}",
+            "timeAggregation": "rate",
+            "spaceAggregation": "sum"
+          },
+          "F1": {
+            "queryName": "F1",
+            "expression": "A/B",
+            "disabled": false,
+            "legend": "error_rate {{operation}}"
+          }
+        }
+      }
+    },
+    {
+      "id": "p95_latency",
+      "title": "P95 Latency (ms)",
+      "description": "95th-percentile request latency per endpoint",
+      "panelTypes": "graph",
+      "yAxisUnit": "ms",
+      "query": {
+        "queryType": "builder",
+        "panelType": "graph",
+        "builderQueries": {
+          "A": {
+            "queryName": "A",
+            "dataSource": "metrics",
+            "expression": "A",
+            "disabled": false,
+            "metric": "signoz_latency_bucket",
+            "stepInterval": 60,
+            "filters": {
+              "op": "AND",
+              "items": [
+                { "key": { "key": "service_name", "type": "tag" }, "op": "=", "value": "signoz-demo-order-service" },
+                { "key": { "key": "span_kind",    "type": "tag" }, "op": "=", "value": "SPAN_KIND_SERVER" }
+              ]
+            },
+            "groupBy": [{ "key": "operation", "type": "tag" }],
+            "legend": "p95 {{operation}}",
+            "timeAggregation": "p95",
+            "spaceAggregation": "p95"
+          }
+        }
+      }
+    },
+    {
+      "id": "p50_latency",
+      "title": "P50 Latency / Median (ms)",
+      "description": "Median request latency per endpoint",
+      "panelTypes": "graph",
+      "yAxisUnit": "ms",
+      "query": {
+        "queryType": "builder",
+        "panelType": "graph",
+        "builderQueries": {
+          "A": {
+            "queryName": "A",
+            "dataSource": "metrics",
+            "expression": "A",
+            "disabled": false,
+            "metric": "signoz_latency_bucket",
+            "stepInterval": 60,
+            "filters": {
+              "op": "AND",
+              "items": [
+                { "key": { "key": "service_name", "type": "tag" }, "op": "=", "value": "signoz-demo-order-service" },
+                { "key": { "key": "span_kind",    "type": "tag" }, "op": "=", "value": "SPAN_KIND_SERVER" }
+              ]
+            },
+            "groupBy": [{ "key": "operation", "type": "tag" }],
+            "legend": "p50 {{operation}}",
+            "timeAggregation": "p50",
+            "spaceAggregation": "p50"
+          }
+        }
+      }
+    },
+    {
+      "id": "orders_total",
+      "title": "Orders Created (total)",
+      "description": "Cumulative count of orders created via the custom orders_created_total metric",
+      "panelTypes": "graph",
+      "yAxisUnit": "short",
+      "query": {
+        "queryType": "builder",
+        "panelType": "graph",
+        "builderQueries": {
+          "A": {
+            "queryName": "A",
+            "dataSource": "metrics",
+            "expression": "A",
+            "disabled": false,
+            "metric": "orders_created_total",
+            "stepInterval": 60,
+            "filters": { "op": "AND", "items": [] },
+            "groupBy": [],
+            "legend": "orders_created",
+            "timeAggregation": "rate",
+            "spaceAggregation": "sum"
+          }
+        }
+      }
+    },
+    {
+      "id": "order_errors",
+      "title": "Order Errors",
+      "description": "Rate of order-level errors from the custom order_errors_total metric",
+      "panelTypes": "graph",
+      "yAxisUnit": "short",
+      "query": {
+        "queryType": "builder",
+        "panelType": "graph",
+        "builderQueries": {
+          "A": {
+            "queryName": "A",
+            "dataSource": "metrics",
+            "expression": "A",
+            "disabled": false,
+            "metric": "order_errors_total",
+            "stepInterval": 60,
+            "filters": { "op": "AND", "items": [] },
+            "groupBy": [{ "key": "error_type", "type": "tag" }],
+            "legend": "{{error_type}}",
+            "timeAggregation": "rate",
+            "spaceAggregation": "sum"
+          }
+        }
+      }
+    },
+    {
+      "id": "db_duration",
+      "title": "DB Operation Latency — P95 (ms)",
+      "description": "P95 latency of SQLite operations by operation type from db_operation_duration_seconds",
+      "panelTypes": "graph",
+      "yAxisUnit": "ms",
+      "query": {
+        "queryType": "builder",
+        "panelType": "graph",
+        "builderQueries": {
+          "A": {
+            "queryName": "A",
+            "dataSource": "metrics",
+            "expression": "A",
+            "disabled": false,
+            "metric": "db_operation_duration_seconds_bucket",
+            "stepInterval": 60,
+            "filters": { "op": "AND", "items": [] },
+            "groupBy": [{ "key": "db.operation", "type": "tag" }],
+            "legend": "p95 {{db.operation}}",
+            "timeAggregation": "p95",
+            "spaceAggregation": "p95"
+          }
+        }
+      }
+    },
+    {
+      "id": "db_calls_total",
+      "title": "DB Calls — Rate by Operation & Status",
+      "description": "Rate of SQLite calls split by db.operation (INSERT/SELECT) and db.status (ok|error) from db_calls_total",
+      "panelTypes": "graph",
+      "yAxisUnit": "short",
+      "query": {
+        "queryType": "builder",
+        "panelType": "graph",
+        "builderQueries": {
+          "A": {
+            "queryName": "A",
+            "dataSource": "metrics",
+            "expression": "A",
+            "disabled": false,
+            "metric": "db_calls_total",
+            "stepInterval": 60,
+            "filters": { "op": "AND", "items": [] },
+            "groupBy": [
+              { "key": "db.operation", "type": "tag" },
+              { "key": "db.status",    "type": "tag" }
+            ],
+            "legend": "{{db.operation}} / {{db.status}}",
+            "timeAggregation": "rate",
+            "spaceAggregation": "sum"
+          }
+        }
+      }
+    },
+    {
+      "id": "db_errors_total",
+      "title": "DB Errors — Rate by Operation",
+      "description": "Rate of SQLite errors per operation type from db_errors_total",
+      "panelTypes": "graph",
+      "yAxisUnit": "short",
+      "query": {
+        "queryType": "builder",
+        "panelType": "graph",
+        "builderQueries": {
+          "A": {
+            "queryName": "A",
+            "dataSource": "metrics",
+            "expression": "A",
+            "disabled": false,
+            "metric": "db_errors_total",
+            "stepInterval": 60,
+            "filters": { "op": "AND", "items": [] },
+            "groupBy": [{ "key": "db.operation", "type": "tag" }],
+            "legend": "errors {{db.operation}}",
+            "timeAggregation": "rate",
+            "spaceAggregation": "sum"
+          }
+        }
+      }
+    },
+    {
+      "id": "db_rows_affected",
+      "title": "DB Rows Affected — Rate (Writes)",
+      "description": "Rate of rows written to SQLite (INSERT/UPDATE/DELETE) from db_rows_affected_total",
+      "panelTypes": "graph",
+      "yAxisUnit": "short",
+      "query": {
+        "queryType": "builder",
+        "panelType": "graph",
+        "builderQueries": {
+          "A": {
+            "queryName": "A",
+            "dataSource": "metrics",
+            "expression": "A",
+            "disabled": false,
+            "metric": "db_rows_affected_total",
+            "stepInterval": 60,
+            "filters": { "op": "AND", "items": [] },
+            "groupBy": [{ "key": "db.operation", "type": "tag" }],
+            "legend": "rows written {{db.operation}}",
+            "timeAggregation": "rate",
+            "spaceAggregation": "sum"
+          }
+        }
+      }
+    },
+    {
+      "id": "db_rows_returned",
+      "title": "DB Rows Returned — Rate (Reads)",
+      "description": "Rate of rows read from SQLite SELECT operations from db_rows_returned_total",
+      "panelTypes": "graph",
+      "yAxisUnit": "short",
+      "query": {
+        "queryType": "builder",
+        "panelType": "graph",
+        "builderQueries": {
+          "A": {
+            "queryName": "A",
+            "dataSource": "metrics",
+            "expression": "A",
+            "disabled": false,
+            "metric": "db_rows_returned_total",
+            "stepInterval": 60,
+            "filters": { "op": "AND", "items": [] },
+            "groupBy": [{ "key": "db.operation", "type": "tag" }],
+            "legend": "rows read {{db.operation}}",
+            "timeAggregation": "rate",
+            "spaceAggregation": "sum"
+          }
+        }
+      }
+    },
+    {
+      "id": "ext_duration",
+      "title": "External Call Latency — P95 (ms)",
+      "description": "P95 latency of outbound HTTP/gRPC calls to external services from external_call_duration_seconds. Panels will populate once external calls are wired.",
+      "panelTypes": "graph",
+      "yAxisUnit": "ms",
+      "query": {
+        "queryType": "builder",
+        "panelType": "graph",
+        "builderQueries": {
+          "A": {
+            "queryName": "A",
+            "dataSource": "metrics",
+            "expression": "A",
+            "disabled": false,
+            "metric": "external_call_duration_seconds_bucket",
+            "stepInterval": 60,
+            "filters": { "op": "AND", "items": [] },
+            "groupBy": [
+              { "key": "external.target", "type": "tag" },
+              { "key": "http.method",     "type": "tag" }
+            ],
+            "legend": "p95 {{external.target}} {{http.method}}",
+            "timeAggregation": "p95",
+            "spaceAggregation": "p95"
+          }
+        }
+      }
+    },
+    {
+      "id": "ext_calls_total",
+      "title": "External Calls — Rate by Target & Status",
+      "description": "Rate of outbound calls split by external.target, http.method, and http.status_code from external_calls_total",
+      "panelTypes": "graph",
+      "yAxisUnit": "short",
+      "query": {
+        "queryType": "builder",
+        "panelType": "graph",
+        "builderQueries": {
+          "A": {
+            "queryName": "A",
+            "dataSource": "metrics",
+            "expression": "A",
+            "disabled": false,
+            "metric": "external_calls_total",
+            "stepInterval": 60,
+            "filters": { "op": "AND", "items": [] },
+            "groupBy": [
+              { "key": "external.target",   "type": "tag" },
+              { "key": "http.method",        "type": "tag" },
+              { "key": "http.status_code",   "type": "tag" }
+            ],
+            "legend": "{{external.target}} {{http.method}} {{http.status_code}}",
+            "timeAggregation": "rate",
+            "spaceAggregation": "sum"
+          }
+        }
+      }
+    },
+    {
+      "id": "ext_call_errors",
+      "title": "External Call Errors — Rate by Target",
+      "description": "Rate of failed outbound calls by external.target and http.method from external_call_errors_total",
+      "panelTypes": "graph",
+      "yAxisUnit": "short",
+      "query": {
+        "queryType": "builder",
+        "panelType": "graph",
+        "builderQueries": {
+          "A": {
+            "queryName": "A",
+            "dataSource": "metrics",
+            "expression": "A",
+            "disabled": false,
+            "metric": "external_call_errors_total",
+            "stepInterval": 60,
+            "filters": { "op": "AND", "items": [] },
+            "groupBy": [
+              { "key": "external.target", "type": "tag" },
+              { "key": "http.method",     "type": "tag" }
+            ],
+            "legend": "errors {{external.target}} {{http.method}}",
+            "timeAggregation": "rate",
+            "spaceAggregation": "sum"
+          }
+        }
+      }
+    }
+  ]
+}

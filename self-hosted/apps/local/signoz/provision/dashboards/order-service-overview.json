@@ -1,0 +1,248 @@
+{
+  "title": "signoz-demo — Order Service Overview",
+  "description": "Key metrics for the signoz-demo Order Service: request rate, error rate, P95 latency, and custom business metrics.",
+  "tags": ["signoz-demo", "order-service", "k3d"],
+  "layout": [
+    { "i": "rps",         "x": 0,  "y": 0, "w": 6, "h": 2 },
+    { "i": "error_rate",  "x": 6,  "y": 0, "w": 6, "h": 2 },
+    { "i": "p95_latency", "x": 0,  "y": 2, "w": 6, "h": 2 },
+    { "i": "p50_latency", "x": 6,  "y": 2, "w": 6, "h": 2 },
+    { "i": "orders_total","x": 0,  "y": 4, "w": 6, "h": 2 },
+    { "i": "order_errors","x": 6,  "y": 4, "w": 6, "h": 2 },
+    { "i": "db_duration", "x": 0,  "y": 6, "w": 12,"h": 2 }
+  ],
+  "panels": [
+    {
+      "id": "rps",
+      "title": "Request Rate (RPS)",
+      "description": "Requests per second for all server spans",
+      "panelTypes": "graph",
+      "yAxisUnit": "reqps",
+      "query": {
+        "queryType": "builder",
+        "panelType": "graph",
+        "builderQueries": {
+          "A": {
+            "queryName": "A",
+            "dataSource": "metrics",
+            "expression": "A",
+            "disabled": false,
+            "metric": "signoz_calls_total",
+            "stepInterval": 60,
+            "filters": {
+              "op": "AND",
+              "items": [
+                { "key": { "key": "service_name", "type": "tag" }, "op": "=", "value": "signoz-demo-order-service" },
+                { "key": { "key": "span_kind",    "type": "tag" }, "op": "=", "value": "SPAN_KIND_SERVER" }
+              ]
+            },
+            "groupBy": [{ "key": "operation", "type": "tag" }],
+            "legend": "{{operation}}",
+            "timeAggregation": "rate",
+            "spaceAggregation": "sum"
+          }
+        }
+      }
+    },
+    {
+      "id": "error_rate",
+      "title": "Error Rate (%)",
+      "description": "% of requests ending in STATUS_CODE_ERROR",
+      "panelTypes": "graph",
+      "yAxisUnit": "percentunit",
+      "query": {
+        "queryType": "builder",
+        "panelType": "graph",
+        "builderQueries": {
+          "A": {
+            "queryName": "A",
+            "dataSource": "metrics",
+            "expression": "A",
+            "disabled": false,
+            "metric": "signoz_calls_total",
+            "stepInterval": 60,
+            "filters": {
+              "op": "AND",
+              "items": [
+                { "key": { "key": "service_name", "type": "tag" }, "op": "=", "value": "signoz-demo-order-service" },
+                { "key": { "key": "span_kind",    "type": "tag" }, "op": "=", "value": "SPAN_KIND_SERVER" },
+                { "key": { "key": "status_code",  "type": "tag" }, "op": "=", "value": "STATUS_CODE_ERROR" }
+              ]
+            },
+            "groupBy": [{ "key": "operation", "type": "tag" }],
+            "legend": "errors {{operation}}",
+            "timeAggregation": "rate",
+            "spaceAggregation": "sum"
+          },
+          "B": {
+            "queryName": "B",
+            "dataSource": "metrics",
+            "expression": "B",
+            "disabled": false,
+            "metric": "signoz_calls_total",
+            "stepInterval": 60,
+            "filters": {
+              "op": "AND",
+              "items": [
+                { "key": { "key": "service_name", "type": "tag" }, "op": "=", "value": "signoz-demo-order-service" },
+                { "key": { "key": "span_kind",    "type": "tag" }, "op": "=", "value": "SPAN_KIND_SERVER" }
+              ]
+            },
+            "groupBy": [{ "key": "operation", "type": "tag" }],
+            "legend": "total {{operation}}",
+            "timeAggregation": "rate",
+            "spaceAggregation": "sum"
+          },
+          "F1": {
+            "queryName": "F1",
+            "expression": "A/B",
+            "disabled": false,
+            "legend": "error_rate {{operation}}"
+          }
+        }
+      }
+    },
+    {
+      "id": "p95_latency",
+      "title": "P95 Latency (ms)",
+      "description": "95th-percentile request latency per endpoint",
+      "panelTypes": "graph",
+      "yAxisUnit": "ms",
+      "query": {
+        "queryType": "builder",
+        "panelType": "graph",
+        "builderQueries": {
+          "A": {
+            "queryName": "A",
+            "dataSource": "metrics",
+            "expression": "A",
+            "disabled": false,
+            "metric": "signoz_latency_bucket",
+            "stepInterval": 60,
+            "filters": {
+              "op": "AND",
+              "items": [
+                { "key": { "key": "service_name", "type": "tag" }, "op": "=", "value": "signoz-demo-order-service" },
+                { "key": { "key": "span_kind",    "type": "tag" }, "op": "=", "value": "SPAN_KIND_SERVER" }
+              ]
+            },
+            "groupBy": [{ "key": "operation", "type": "tag" }],
+            "legend": "p95 {{operation}}",
+            "timeAggregation": "p95",
+            "spaceAggregation": "p95"
+          }
+        }
+      }
+    },
+    {
+      "id": "p50_latency",
+      "title": "P50 Latency / Median (ms)",
+      "description": "Median request latency per endpoint",
+      "panelTypes": "graph",
+      "yAxisUnit": "ms",
+      "query": {
+        "queryType": "builder",
+        "panelType": "graph",
+        "builderQueries": {
+          "A": {
+            "queryName": "A",
+            "dataSource": "metrics",
+            "expression": "A",
+            "disabled": false,
+            "metric": "signoz_latency_bucket",
+            "stepInterval": 60,
+            "filters": {
+              "op": "AND",
+              "items": [
+                { "key": { "key": "service_name", "type": "tag" }, "op": "=", "value": "signoz-demo-order-service" },
+                { "key": { "key": "span_kind",    "type": "tag" }, "op": "=", "value": "SPAN_KIND_SERVER" }
+              ]
+            },
+            "groupBy": [{ "key": "operation", "type": "tag" }],
+            "legend": "p50 {{operation}}",
+            "timeAggregation": "p50",
+            "spaceAggregation": "p50"
+          }
+        }
+      }
+    },
+    {
+      "id": "orders_total",
+      "title": "Orders Created (total)",
+      "description": "Cumulative count of orders created via the custom orders_created_total metric",
+      "panelTypes": "graph",
+      "yAxisUnit": "short",
+      "query": {
+        "queryType": "builder",
+        "panelType": "graph",
+        "builderQueries": {
+          "A": {
+            "queryName": "A",
+            "dataSource": "metrics",
+            "expression": "A",
+            "disabled": false,
+            "metric": "orders_created_total",
+            "stepInterval": 60,
+            "filters": { "op": "AND", "items": [] },
+            "groupBy": [],
+            "legend": "orders_created",
+            "timeAggregation": "rate",
+            "spaceAggregation": "sum"
+          }
+        }
+      }
+    },
+    {
+      "id": "order_errors",
+      "title": "Order Errors",
+      "description": "Rate of order-level errors from the custom order_errors_total metric",
+      "panelTypes": "graph",
+      "yAxisUnit": "short",
+      "query": {
+        "queryType": "builder",
+        "panelType": "graph",
+        "builderQueries": {
+          "A": {
+            "queryName": "A",
+            "dataSource": "metrics",
+            "expression": "A",
+            "disabled": false,
+            "metric": "order_errors_total",
+            "stepInterval": 60,
+            "filters": { "op": "AND", "items": [] },
+            "groupBy": [{ "key": "error_type", "type": "tag" }],
+            "legend": "{{error_type}}",
+            "timeAggregation": "rate",
+            "spaceAggregation": "sum"
+          }
+        }
+      }
+    },
+    {
+      "id": "db_duration",
+      "title": "SQLite DB Operation Duration (ms)",
+      "description": "P95 latency of SQLite operations by operation type from db_operation_duration_seconds",
+      "panelTypes": "graph",
+      "yAxisUnit": "ms",
+      "query": {
+        "queryType": "builder",
+        "panelType": "graph",
+        "builderQueries": {
+          "A": {
+            "queryName": "A",
+            "dataSource": "metrics",
+            "expression": "A",
+            "disabled": false,
+            "metric": "db_operation_duration_seconds_bucket",
+            "stepInterval": 60,
+            "filters": { "op": "AND", "items": [] },
+            "groupBy": [{ "key": "db.operation", "type": "tag" }],
+            "legend": "{{db.operation}}",
+            "timeAggregation": "p95",
+            "spaceAggregation": "p95"
+          }
+        }
+      }
+    }
+  ]
+}

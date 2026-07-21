@@ -1,0 +1,43 @@
+{
+  "name": "signoz-demo — Slow Traces (>1s)",
+  "sourcePage": "traces",
+  "query": {
+    "queryType": "builder",
+    "panelType": "list",
+    "builderQueries": {
+      "A": {
+        "queryName": "A",
+        "dataSource": "traces",
+        "expression": "A",
+        "disabled": false,
+        "filters": {
+          "op": "AND",
+          "items": [
+            {
+              "key": { "key": "serviceName", "type": "tag" },
+              "op": "=",
+              "value": "signoz-demo-order-service"
+            },
+            {
+              "key": { "key": "durationNano", "type": "tag" },
+              "op": ">",
+              "value": "1000000000"
+            }
+          ]
+        },
+        "orderBy": [{ "columnName": "durationNano", "order": "desc" }],
+        "limit": 100,
+        "offset": 0,
+        "pageSize": 100,
+        "selectColumns": [
+          { "key": "serviceName", "type": "tag" },
+          { "key": "name", "type": "tag" },
+          { "key": "durationNano", "type": "tag" },
+          { "key": "httpMethod", "type": "tag" },
+          { "key": "httpRoute", "type": "tag" }
+        ]
+      }
+    }
+  },
+  "extraData": "{\"selectedTime\":\"15min\"}"
+}

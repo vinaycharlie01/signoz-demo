@@ -1,0 +1,80 @@
+{
+  "alert": "High Error Rate — signoz-demo",
+  "labels": {
+    "severity": "critical",
+    "team": "backend",
+    "service": "signoz-demo-order-service"
+  },
+  "annotations": {
+    "description": "Error rate for signoz-demo-order-service exceeded 5% over the last 5 minutes. Current value: {{ $value }}%",
+    "summary": "High error rate on signoz-demo Order Service"
+  },
+  "alertType": "METRIC_BASED_ALERT",
+  "condition": {
+    "compositeQuery": {
+      "queryType": "builder",
+      "panelType": "graph",
+      "builderQueries": {
+        "A": {
+          "queryName": "A",
+          "stepInterval": 60,
+          "dataSource": "metrics",
+          "expression": "A",
+          "disabled": false,
+          "metric": "signoz_calls_total",
+          "filters": {
+            "op": "AND",
+            "items": [
+              { "key": { "key": "service_name", "type": "tag" }, "op": "=", "value": "signoz-demo-order-service" },
+              { "key": { "key": "span_kind", "type": "tag" }, "op": "=", "value": "SPAN_KIND_SERVER" },
+              { "key": { "key": "status_code", "type": "tag" }, "op": "=", "value": "STATUS_CODE_ERROR" }
+            ]
+          },
+          "groupBy": [{ "key": "operation", "type": "tag" }],
+          "legend": "errors",
+          "reduceTo": "sum",
+          "timeAggregation": "rate",
+          "spaceAggregation": "sum"
+        },
+        "B": {
+          "queryName": "B",
+          "stepInterval": 60,
+          "dataSource": "metrics",
+          "expression": "B",
+          "disabled": false,
+          "metric": "signoz_calls_total",
+          "filters": {
+            "op": "AND",
+            "items": [
+              { "key": { "key": "service_name", "type": "tag" }, "op": "=", "value": "signoz-demo-order-service" },
+              { "key": { "key": "span_kind", "type": "tag" }, "op": "=", "value": "SPAN_KIND_SERVER" }
+            ]
+          },
+          "groupBy": [{ "key": "operation", "type": "tag" }],
+          "legend": "total",
+          "reduceTo": "sum",
+          "timeAggregation": "rate",
+          "spaceAggregation": "sum"
+        },
+        "F1": {
+          "queryName": "F1",
+          "expression": "A/B",
+          "disabled": false,
+          "legend": "error_rate"
+        }
+      },
+      "queryNames": ["F1"]
+    },
+    "op": "1",
+    "matchType": "1",
+    "target": 0.05,
+    "targetUnit": "percentunit",
+    "selectedQueryName": "F1",
+    "absentFor": 0,
+    "alertOnAbsent": false
+  },
+  "evalWindow": "5m0s",
+  "frequency": "1m0s",
+  "version": "v4",
+  "source": "signoz-demo/observability/alerts/high-error-rate.json"
+}

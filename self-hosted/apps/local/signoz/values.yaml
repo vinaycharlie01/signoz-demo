@@ -1,0 +1,79 @@
+# SigNoz Helm values for k3d local deployment.
+# Based on the foundry-generated values but with duplicate env vars removed.
+# The signoz chart already sets SIGNOZ_SQLSTORE_PROVIDER and
+# SIGNOZ_SQLSTORE_POSTGRES_DSN internally — setting them again in signoz.env
+# causes a "duplicate entries for key" server-side apply error.
+
+clickhouse:
+  enabled: true
+  fullnameOverride: signoz-telemetrystore-clickhouse
+  image:
+    repository: clickhouse/clickhouse-server
+    tag: 25.12.5
+  layout:
+    replicasCount: 0
+    shardsCount: 1
+  zookeeper:
+    enabled: true
+    fullnameOverride: signoz-telemetrykeeper-zookeeper
+    image:
+      repository: signoz/zookeeper
+      tag: 3.7.1
+    replicaCount: 1
+
+fullnameOverride: signoz
+
+otelCollector:
+  enabled: true
+  env:
+    SIGNOZ_OTEL_COLLECTOR_TIMEOUT: 10m
+  image:
+    repository: signoz/signoz-otel-collector
+    tag: latest
+  name: ingester
+  ports:
+    otlp:
+      containerPort: 4317
+      enabled: true
+      protocol: TCP
+      servicePort: 4317
+    otlp-http:
+      containerPort: 4318
+      enabled: true
+      protocol: TCP
+      servicePort: 4318
+  replicaCount: 1
+
+postgresql:
+  auth:
+    database: signoz
+    password: signoz
+    username: signoz
+  enabled: true
+  fullnameOverride: signoz-metastore-postgres
+  image:
+    repository: postgres
+    tag: 16
+
+signoz:
+  # NOTE: Do NOT set SIGNOZ_SQLSTORE_PROVIDER or SIGNOZ_SQLSTORE_POSTGRES_DSN here.
+  # The chart defines them as defaults; duplicating them causes a server-side apply error.
+  env:
+    SIGNOZ_TELEMETRYSTORE_CLICKHOUSE_DSN: tcp://signoz-telemetrystore-clickhouse:9000
+    SIGNOZ_TELEMETRYSTORE_PROVIDER: clickhouse
+  image:
+    repository: signoz/signoz
+    tag: latest
+  name: signoz
+  replicaCount: 1
+  service:
+    internalPort: 8085
+    opampPort: 4320
+    port: 8080
+    type: ClusterIP
+
+telemetryStoreMigrator:
+  enabled: true
+  env:
+    SIGNOZ_OTEL_COLLECTOR_TIMEOUT: 10m
+  name: signoz-telemetrystore-migrator

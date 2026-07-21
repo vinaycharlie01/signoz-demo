@@ -1,0 +1,52 @@
+{
+  "alert": "Order Service Down — signoz-demo",
+  "labels": {
+    "severity": "critical",
+    "team": "backend",
+    "service": "signoz-demo-order-service"
+  },
+  "annotations": {
+    "description": "No data received from signoz-demo-order-service for more than 5 minutes. The service may be down.",
+    "summary": "signoz-demo Order Service is not sending telemetry"
+  },
+  "alertType": "METRIC_BASED_ALERT",
+  "condition": {
+    "compositeQuery": {
+      "queryType": "builder",
+      "panelType": "graph",
+      "builderQueries": {
+        "A": {
+          "queryName": "A",
+          "stepInterval": 60,
+          "dataSource": "metrics",
+          "expression": "A",
+          "disabled": false,
+          "metric": "signoz_calls_total",
+          "filters": {
+            "op": "AND",
+            "items": [
+              { "key": { "key": "service_name", "type": "tag" }, "op": "=", "value": "signoz-demo-order-service" }
+            ]
+          },
+          "groupBy": [],
+          "legend": "requests",
+          "reduceTo": "sum",
+          "timeAggregation": "rate",
+          "spaceAggregation": "sum"
+        }
+      },
+      "queryNames": ["A"]
+    },
+    "op": "4",
+    "matchType": "3",
+    "target": 0,
+    "targetUnit": "short",
+    "selectedQueryName": "A",
+    "absentFor": 5,
+    "alertOnAbsent": true
+  },
+  "evalWindow": "5m0s",
+  "frequency": "1m0s",
+  "version": "v4",
+  "source": "signoz-demo/observability/alerts/order-service-down.json"
+}

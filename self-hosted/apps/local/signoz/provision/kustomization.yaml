@@ -1,0 +1,34 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: signoz
+
+# Build ConfigMaps from the JSON files copied locally into alerts/, views/, dashboards/.
+# These are sourced from signoz-demo/observability/ — kept here so kustomize can load them
+# (kustomize requires all file sources to be within the kustomization root).
+configMapGenerator:
+  - name: signoz-provision-alerts
+    files:
+      - alerts/high-error-rate.json
+      - alerts/high-p95-latency.json
+      - alerts/order-service-down.json
+    options:
+      disableNameSuffixHash: true
+
+  - name: signoz-provision-views
+    files:
+      - views/error-traces.json
+      - views/slow-traces.json
+      - views/order-service-logs.json
+    options:
+      disableNameSuffixHash: true
+
+  - name: signoz-provision-dashboards
+    files:
+      - dashboards/order-service-overview.json
+    options:
+      disableNameSuffixHash: true
+
+resources:
+  - provision-job.yaml
+  - provision-secret.yaml

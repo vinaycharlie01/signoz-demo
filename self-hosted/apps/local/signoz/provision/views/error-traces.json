@@ -1,0 +1,43 @@
+{
+  "name": "signoz-demo — Error Traces",
+  "sourcePage": "traces",
+  "query": {
+    "queryType": "builder",
+    "panelType": "list",
+    "builderQueries": {
+      "A": {
+        "queryName": "A",
+        "dataSource": "traces",
+        "expression": "A",
+        "disabled": false,
+        "filters": {
+          "op": "AND",
+          "items": [
+            {
+              "key": { "key": "serviceName", "type": "tag" },
+              "op": "=",
+              "value": "signoz-demo-order-service"
+            },
+            {
+              "key": { "key": "hasError", "type": "tag" },
+              "op": "=",
+              "value": "true"
+            }
+          ]
+        },
+        "orderBy": [{ "columnName": "timestamp", "order": "desc" }],
+        "limit": 100,
+        "offset": 0,
+        "pageSize": 100,
+        "selectColumns": [
+          { "key": "serviceName", "type": "tag" },
+          { "key": "name", "type": "tag" },
+          { "key": "durationNano", "type": "tag" },
+          { "key": "httpStatusCode", "type": "tag" },
+          { "key": "responseStatusCode", "type": "tag" }
+        ]
+      }
+    }
+  },
+  "extraData": "{\"selectedTime\":\"15min\"}"
+}

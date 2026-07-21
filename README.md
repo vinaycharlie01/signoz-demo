@@ -7,7 +7,7 @@ This repo ships two deployment modes:
 | Mode | How | When to use |
 |------|-----|-------------|
 | **Docker Compose** | `mage docker:up` | Fast local dev — SigNoz runs via Foundry |
-| **Kubernetes (k3d)** | `kubectl apply -k` | Demo / staging — full k8s stack on your laptop |
+| **Kubernetes (k3d)** | `mage cluster:up` + `mage helm:installSignoz` | Self-contained demo — full k8s stack on your laptop |
 
 ---
 
@@ -18,19 +18,21 @@ This repo ships two deployment modes:
 3. [Repository layout](#repository-layout)
 4. [Prerequisites](#prerequisites)
 5. [Quick start — Docker Compose](#quick-start--docker-compose)
-6. [Quick start — Kubernetes on k3d](#quick-start--kubernetes-on-k3d)
-   - [Step 1 — Create the k3d cluster (eh-fleets)](#step-1--create-the-k3d-cluster-eh-fleets)
-   - [Step 2 — Deploy SigNoz (foundry)](#step-2--deploy-signoz-foundry)
-   - [Step 3 — Deploy signoz-demo](#step-3--deploy-signoz-demo)
-   - [Step 4 — Access the services](#step-4--access-the-services)
-7. [Kubernetes manifests (`deploy/`)](#kubernetes-manifests-deploy)
-8. [CI workflow — build & publish image](#ci-workflow--build--publish-image)
-9. [Environment variables](#environment-variables)
-10. [Sending test requests](#sending-test-requests)
-11. [Load generation](#load-generation)
-12. [Viewing telemetry in SigNoz](#viewing-telemetry-in-signoz)
-13. [Troubleshooting](#troubleshooting)
-14. [Cleanup](#cleanup)
+6. [Quick start — Kubernetes on k3d (self-hosted)](#quick-start--kubernetes-on-k3d-self-hosted)
+   - [Step 1 — Create the k3d cluster](#step-1--create-the-k3d-cluster)
+   - [Step 2 — Install SigNoz](#step-2--install-signoz)
+   - [Step 3 — Install k8s-infra (optional)](#step-3--install-k8s-infra-optional)
+   - [Step 4 — Deploy the Order Service](#step-4--deploy-the-order-service)
+   - [Step 5 — Access the services](#step-5--access-the-services)
+7. [All mage targets](#all-mage-targets)
+8. [Kubernetes manifests (`deploy/`)](#kubernetes-manifests-deploy)
+9. [CI workflow — build & publish image](#ci-workflow--build--publish-image)
+10. [Environment variables](#environment-variables)
+11. [Sending test requests](#sending-test-requests)
+12. [Load generation](#load-generation)
+13. [Viewing telemetry in SigNoz](#viewing-telemetry-in-signoz)
+14. [Troubleshooting](#troubleshooting)
+15. [Cleanup](#cleanup)
 
 ---
 
@@ -42,7 +44,7 @@ This repo ships two deployment modes:
 | Architecture | Hexagonal — `internal/domain` has zero framework imports |
 | Database | SQLite (`modernc.org/sqlite`, pure Go, no cgo) |
 | Observability | OpenTelemetry SDK — **traces + metrics + logs**, exported over OTLP/gRPC |
-| Telemetry backend | Self-hosted **SigNoz** (Docker Compose via Foundry **or** Kubernetes via kustomize) |
+| Telemetry backend | Self-hosted **SigNoz** (Docker Compose via Foundry **or** Kubernetes via `self-hosted/`) |
 | Build tooling | [Mage](https://magefile.org/) — no Makefile, no shell scripts |
 | Container image | `ghcr.io/vinaycharlie01/signoz-demo` (multi-arch: `linux/amd64`, `linux/arm64`) |
 
@@ -96,6 +98,17 @@ signoz-demo/
 │   ├── base/          # Namespace, Deployment, Service, PVC, Ingress
 │   └── overlays/
 │       └── local/     # k3d overrides (nip.io host, image tag)
+├── self-hosted/       # Everything needed to run SigNoz on k3d locally
+│   ├── k3d.yaml       # Cluster + Helm config (read by mage targets)
+│   ├── apps/
+│   │   ├── base/observability/k8s-infra/values.yaml
+│   │   └── local/
+│   │       ├── signoz/values.yaml        # SigNoz Helm values
+│   │       ├── signoz/ingress.yaml       # SigNoz ingress (nip.io)
+│   │       └── observability/k8s-infra/  # k8s-infra Helm values
+│   ├── clusters/      # ArgoCD app-of-apps (optional GitOps path)
+│   └── infrastructure/
+│       └── base/observability/  # Namespaces + base resources
 ├── internal/          # Hexagonal application core
 │   ├── adapters/      # HTTP + SQLite adapters
 │   ├── application/   # Use cases
@@ -106,7 +119,7 @@ signoz-demo/
 ├── migrations/        # SQLite schema
 ├── Dockerfile         # Alpine image (copies prebuilt binary from dist/)
 ├── docker-compose.yml # Local dev stack (app only — SigNoz via Foundry)
-├── magefile.go        # Mage entry point
+├── magefile.go        # All mage targets (Go, Docker, Loadgen, Cluster, Helm, Gitops, Sops, Deploy)
 ├── go.yaml            # Mage Go build config
 └── docker.yaml        # Mage Docker build config
 ```
@@ -129,6 +142,7 @@ signoz-demo/
 |------|---------|---------|
 | k3d | latest | `curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh \| bash` |
 | kubectl | 1.29+ | https://kubernetes.io/docs/tasks/tools/ |
+| helm | 3.x | `brew install helm` or https://helm.sh/docs/intro/install/ |
 | kustomize | 5.x | `brew install kustomize` or https://kubectl.docs.kubernetes.io/installation/kustomize/ |
 
 ---
@@ -158,116 +172,111 @@ open http://localhost:8080
 
 ---
 
-## Quick start — Kubernetes on k3d
+## Quick start — Kubernetes on k3d (self-hosted)
 
-This mode runs everything (ingress-nginx, SigNoz, and the Order Service) inside a local k3d cluster. No ArgoCD — all deployments are done with plain `kubectl apply -k`.
-
-### Repo layout on disk
-
-The three repos are expected as siblings:
+Everything is self-contained in this repo. All commands are run from the `signoz-demo/` root — no sibling repos required.
 
 ```
-~/path/to/
-├── eh-fleets/      ← cluster creation (k3d + mage)
-├── foundry/        ← SigNoz kustomize manifests
-└── signoz-demo/    ← Order Service app + deploy/ manifests
+signoz-demo/
+└── self-hosted/   ← cluster config, Helm values, infra manifests
 ```
 
-> You can override paths with `FOUNDRY_PATH` and `SIGNOZ_DEMO_PATH` env vars when running `mage` targets.
-
----
-
-### Step 1 — Create the k3d cluster (eh-fleets)
-
-```bash
-cd eh-fleets
-
-# Create the k3d cluster, create namespaces, and install ingress-nginx
-mage up
-
-# Verify
-kubectl get nodes
-kubectl get pods -n ingress-nginx
-```
-
-`mage up` does exactly three things in order:
-1. `k3d cluster create` — 1 server + 1 agent, ports 80/443 forwarded to the loadbalancer
-2. `kubectl apply -k infrastructure/base/observability` — creates `monitoring` and `ingress-nginx` namespaces
-3. `helm install ingress-nginx` — installs the ingress controller
-
-> **Find the loadbalancer IP** (needed for nip.io URLs later):
-> ```bash
-> kubectl get svc -n ingress-nginx ingress-nginx-controller \
->   -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
-> ```
-> On k3d this is usually `127.0.0.1` on macOS/Linux — traffic is forwarded through `localhost:80`.
-
----
-
-### Step 2 — Deploy SigNoz (foundry)
-
-SigNoz is deployed using the kustomize manifests inside the `foundry` repo.
-
-```bash
-# From eh-fleets — uses FOUNDRY_PATH (default: ../foundry)
-mage deploySignoz
-
-# ── OR run manually ──
-kubectl apply --server-side -k \
-  ../foundry/docs/examples/kubernetes/kustomize/pours/deployment
-```
-
-Wait for all SigNoz pods to be ready (~3–5 minutes on first pull):
-
-```bash
-kubectl get pods -n signoz -w
-# Wait until all pods are Running/Completed
-```
-
-Check the SigNoz ingress:
-
-```bash
-kubectl get ingress -n signoz
-```
-
-SigNoz UI will be available at `http://signoz.127.0.0.1.nip.io` (or the IP from step 1).
-
-> **First-time setup**: SigNoz prompts you to create an admin account on the first visit.
-
----
-
-### Step 3 — Deploy signoz-demo
-
-The Order Service image is pulled from GHCR. The CI workflow publishes it automatically on every push to `main`/`dev`.
-
-#### Option A — Using mage (from eh-fleets)
-
-```bash
-# From eh-fleets — uses SIGNOZ_DEMO_PATH (default: ../signoz-demo)
-mage deploySignozDemo
-
-# Wait for rollout
-mage deploySignozDemoRollout
-```
-
-#### Option B — Using kubectl directly (from signoz-demo)
+### Step 1 — Create the k3d cluster
 
 ```bash
 cd signoz-demo
 
-# Optional: pin a specific image tag
-# (default overlay uses :latest — fine for demos)
-# cd deploy/overlays/local
-# kustomize edit set image ghcr.io/vinaycharlie01/signoz-demo=ghcr.io/vinaycharlie01/signoz-demo:sha-abc1234
+# Create the k3d cluster, create namespaces, and install ingress-nginx
+mage cluster:up
+```
 
-# Apply
+`mage cluster:up` does four things in order:
+1. `k3d cluster create observability` — 1 server + 1 agent, ports 80/443 forwarded to the loadbalancer, Traefik disabled
+2. Adds all configured Helm repos (`ingress-nginx`, `signoz`)
+3. `kubectl apply -k self-hosted/infrastructure/base/observability` — creates namespaces
+4. `helm upgrade --install ingress-nginx` — installs the ingress controller
+
+Verify:
+
+```bash
+kubectl get nodes
+kubectl get pods -n ingress-nginx
+```
+
+> **Tip:** You can also run each step individually:
+> ```bash
+> mage cluster:create     # k3d cluster create
+> mage helm:repos         # add + update Helm repos
+> mage cluster:bootstrap  # apply infra kustomize (namespaces)
+> ```
+
+---
+
+### Step 2 — Install SigNoz
+
+```bash
+# Install SigNoz via Helm (uses self-hosted/apps/local/signoz/values.yaml)
+mage helm:installSignoz
+```
+
+This runs `helm upgrade --install signoz signoz/signoz` into the `signoz` namespace with a 15-minute timeout. Wait for all pods to be ready (~3–5 minutes on first pull):
+
+```bash
+kubectl get pods -n signoz -w
+# Wait until all pods are Running/Completed
+
+# Or use the mage target:
+mage deploy:signozStatus
+```
+
+> **Override values file:** Set `SIGNOZ_VALUES` env var to point to a different values file:
+> ```bash
+> SIGNOZ_VALUES=self-hosted/apps/local/signoz/values.yaml mage helm:installSignoz
+> ```
+
+> **First-time setup:** SigNoz prompts you to create an admin account on the first visit.
+
+---
+
+### Step 3 — Install k8s-infra (optional)
+
+`k8s-infra` deploys an OpenTelemetry Collector DaemonSet that collects pod logs, host metrics, kubelet metrics, cluster metrics, and Kubernetes events — forwarding them all to SigNoz.
+
+Run this **after** SigNoz is ready:
+
+```bash
+mage helm:installK8sInfra
+```
+
+Verify:
+
+```bash
+mage deploy:k8sInfraStatus
+# or: kubectl get pods -n k8s-infra
+```
+
+---
+
+### Step 4 — Deploy the Order Service
+
+The Order Service image is pulled from GHCR. CI publishes it automatically on every push to `main`/`dev`.
+
+```bash
+# Apply the kustomize overlay (deploy/overlays/local)
+mage deploy:signozDemo
+
+# Wait for the rollout to complete
+mage deploy:signozDemoRollout
+```
+
+Or use kubectl directly:
+
+```bash
 kubectl apply -k deploy/overlays/local
-
-# Wait for rollout
 kubectl rollout status deployment/signoz-demo -n signoz-demo --timeout=120s
 ```
 
-Verify the pod is running:
+Verify:
 
 ```bash
 kubectl get pods -n signoz-demo
@@ -276,28 +285,125 @@ kubectl get ingress -n signoz-demo
 
 ---
 
-### Step 4 — Access the services
+### Step 5 — Access the services
 
-By default the local overlay uses `172.21.189.76` as the nip.io IP. Update it to match your actual loadbalancer IP:
+Print the access URLs:
 
 ```bash
-# Get the real IP
-LB_IP=$(kubectl get svc -n ingress-nginx ingress-nginx-controller \
-  -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-echo "LoadBalancer IP: $LB_IP"
+mage cluster:hosts
 ```
-
-On most k3d setups traffic goes through `localhost` (`127.0.0.1`). Edit `deploy/overlays/local/kustomization.yaml` and replace `172.21.189.76` with your IP, then re-apply.
 
 | Service | URL |
 |---------|-----|
-| Order Service | `http://signoz-demo.127.0.0.1.nip.io` |
 | SigNoz UI | `http://signoz.127.0.0.1.nip.io` |
+| Order Service | `http://signoz-demo.127.0.0.1.nip.io` |
 
 ```bash
 curl http://signoz-demo.127.0.0.1.nip.io/health
 # → {"status":"ok"}
+
+open http://signoz.127.0.0.1.nip.io
 ```
+
+> **Using a different IP?** On some setups the loadbalancer IP may not be `127.0.0.1`. Find it and update `deploy/overlays/local/kustomization.yaml`:
+> ```bash
+> kubectl get svc -n ingress-nginx ingress-nginx-controller \
+>   -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+> ```
+
+---
+
+## All mage targets
+
+Run `mage -l` to see every target. They are organized into namespaces:
+
+```
+mage -l
+```
+
+### `go:` — local Go developer workflow
+
+| Target | Description |
+|--------|-------------|
+| `mage go:setup` | Download and tidy Go module dependencies |
+| `mage go:build` | Compile `cmd/api` → `bin/api` |
+| `mage go:run` | Run `cmd/api` locally with `go run` |
+| `mage go:test` | Run the full unit test suite |
+| `mage go:vet` | Run `go vet ./...` |
+| `mage go:crossBuild` | Cross-compile for `linux/amd64` + `linux/arm64` → `dist/` |
+
+### `docker:` — Docker Compose stack
+
+| Target | Description |
+|--------|-------------|
+| `mage docker:up` | Cross-build + `docker compose up --build -d` |
+| `mage docker:down` | Stop and remove containers (volumes kept) |
+| `mage docker:build` | Rebuild app image without starting |
+| `mage docker:buildxBuild` | Build multi-arch publishable image |
+| `mage docker:push` | Push image to registry |
+| `mage docker:login` | Log in to container registry |
+
+### `loadgen:` — load generation scenarios
+
+| Target | Description |
+|--------|-------------|
+| `mage loadgen:normal` | 20 sequential healthy requests |
+| `mage loadgen:slow` | Requests that hit injected SQLite latency |
+| `mage loadgen:errors` | Mix of use-case + repository-level failures |
+| `mage loadgen:concurrent` | 10-worker burst of mixed traffic |
+| `mage loadgen:full` | All scenarios back-to-back |
+
+### `cluster:` — k3d cluster lifecycle
+
+| Target | Description |
+|--------|-------------|
+| `mage cluster:up` | Create cluster + bootstrap + install releases |
+| `mage cluster:down` | Delete the k3d cluster |
+| `mage cluster:create` | `k3d cluster create` only |
+| `mage cluster:delete` | `k3d cluster delete` only |
+| `mage cluster:list` | List k3d clusters |
+| `mage cluster:bootstrap` | Apply infra kustomize (namespaces) |
+| `mage cluster:status` | Show pods, PVCs, ingresses |
+| `mage cluster:hosts` | Print service access URLs |
+
+### `helm:` — Helm chart management
+
+| Target | Description |
+|--------|-------------|
+| `mage helm:repos` | Add + update all Helm repos |
+| `mage helm:installSignoz` | Install SigNoz via Helm |
+| `mage helm:uninstallSignoz` | Uninstall SigNoz Helm release |
+| `mage helm:installK8sInfra` | Install k8s-infra (pod logs + host metrics) |
+| `mage helm:uninstallK8sInfra` | Uninstall k8s-infra |
+| `mage helm:installIngressNginx` | Install ingress-nginx |
+| `mage helm:installGrafana` | Install Grafana (optional) |
+| `mage helm:installArgoCD` | Install ArgoCD (optional GitOps path) |
+| `mage helm:createRepoSecret` | Create ArgoCD SSH repo secret |
+
+### `deploy:` — Kubernetes deployments
+
+| Target | Description |
+|--------|-------------|
+| `mage deploy:signozDemo` | `kubectl apply -k deploy/overlays/local` |
+| `mage deploy:signozDemoRollout` | Wait for rollout to complete |
+| `mage deploy:signozStatus` | Show SigNoz pod status |
+| `mage deploy:k8sInfraStatus` | Show k8s-infra pod status |
+
+### `gitops:` — ArgoCD GitOps (optional)
+
+| Target | Description |
+|--------|-------------|
+| `mage gitops:bootstrap` | Create cluster + install ArgoCD + apply app-of-apps |
+| `mage gitops:apply` | Apply the ArgoCD app-of-apps |
+| `mage gitops:patchPrune` | Enable pruning on ArgoCD applications |
+
+### `sops:` — secret management
+
+| Target | Description |
+|--------|-------------|
+| `mage sops:init` | Install sops+age, generate key, encrypt secrets |
+| `mage sops:encrypt` | Encrypt all `.dec.yaml` → `.enc.yaml` |
+| `mage sops:decrypt` | Decrypt all `.enc.yaml` → `.dec.yaml` |
 
 ---
 
@@ -392,6 +498,7 @@ To make the package public, go to: **GitHub → Packages → signoz-demo → Pac
 | `DEPLOYMENT_ENVIRONMENT` | `k3d-local` | `deployment.environment.name` attribute |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `signoz-ingester.signoz.svc.cluster.local:4317` | OTLP/gRPC endpoint (all three signals) |
 | `OTEL_EXPORTER_OTLP_INSECURE` | `true` | Skip TLS — fine for local dev only |
+| `SIGNOZ_VALUES` | `self-hosted/apps/local/signoz/values.yaml` | Override Helm values file for `mage helm:installSignoz` |
 
 ---
 
@@ -426,6 +533,7 @@ mage loadgen:normal       # 20 healthy sequential requests
 mage loadgen:slow         # requests that hit the injected ~1.8 s SQLite latency
 mage loadgen:errors       # mix of use-case + repository-level failures
 mage loadgen:concurrent   # 60 requests, 10 concurrent workers, mixed scenarios
+mage loadgen:full         # all scenarios back-to-back
 ```
 
 Each target sets the `X-Demo-Scenario` header. You can also trigger a scenario manually:
@@ -475,7 +583,8 @@ Every log record emitted while a span is active carries `trace_id` and `span_id`
 
 | Symptom | Likely cause & fix |
 |---------|-------------------|
-| `kubectl apply -k` fails with `namespace not found` | k3d cluster not up. Run `mage up` in `eh-fleets` first. |
+| `mage cluster:up` fails | Docker not running, or k3d not installed. Check `k3d version` and `docker info`. |
+| `kubectl apply -k` fails with `namespace not found` | Cluster not up. Run `mage cluster:up` first. |
 | Pod stuck in `ImagePullBackOff` | Image not published yet. Push to `main`/`dev` to trigger CI, or run `mage docker:buildxBuild` + `mage docker:push` locally. |
 | Pod stuck in `CrashLoopBackOff` | Check logs: `kubectl logs -n signoz-demo deploy/signoz-demo`. Usually a bad `OTEL_EXPORTER_OTLP_ENDPOINT` — verify SigNoz is running. |
 | No data in SigNoz UI | The ingester may still be starting. Wait ~60 s and send a request. Check: `kubectl get pods -n signoz`. |
@@ -491,14 +600,16 @@ Every log record emitted while a span is active carries `trace_id` and `span_id`
 
 ```bash
 # Delete the Order Service
-kubectl delete -k signoz-demo/deploy/overlays/local
+kubectl delete -k deploy/overlays/local
 
-# Delete SigNoz
-kubectl delete -k foundry/docs/examples/kubernetes/kustomize/pours/deployment
+# Uninstall k8s-infra (if installed)
+mage helm:uninstallK8sInfra
 
-# Tear down the entire cluster (from eh-fleets)
-cd eh-fleets
-mage down
+# Uninstall SigNoz
+mage helm:uninstallSignoz
+
+# Tear down the entire cluster (deletes everything)
+mage cluster:down
 ```
 
 ### Docker Compose
@@ -528,7 +639,6 @@ docker volume rm \
 ## Further reading
 
 - [`deploy/`](deploy/) — Kubernetes manifests for the Order Service
-- [`docs/FULL_ARCHITECTURE.md`](docs/FULL_ARCHITECTURE.md) — full SigNoz architecture breakdown
-- [`docs/signoz-architecture.md`](docs/signoz-architecture.md) — component-by-component breakdown
-- [`eh-fleets/README.md`](../eh-fleets/README.md) — k3d cluster management with Mage
-- [`foundry/README.md`](../foundry/README.md) — SigNoz installation with Foundry
+- [`self-hosted/`](self-hosted/) — k3d cluster config, Helm values, infra manifests
+- [`self-hosted/k3d.yaml`](self-hosted/k3d.yaml) — cluster + Helm release configuration
+- [`magefile.go`](magefile.go) — all Mage targets in one file

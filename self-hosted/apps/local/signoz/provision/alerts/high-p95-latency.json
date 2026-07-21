@@ -1,0 +1,53 @@
+{
+  "alert": "High P95 Latency — signoz-demo",
+  "labels": {
+    "severity": "warning",
+    "team": "backend",
+    "service": "signoz-demo-order-service"
+  },
+  "annotations": {
+    "description": "P95 latency for signoz-demo-order-service exceeded 1200ms over the last 5 minutes. Current value: {{ $value }}ms",
+    "summary": "High P95 latency on signoz-demo Order Service"
+  },
+  "alertType": "METRIC_BASED_ALERT",
+  "condition": {
+    "compositeQuery": {
+      "queryType": "builder",
+      "panelType": "graph",
+      "builderQueries": {
+        "A": {
+          "queryName": "A",
+          "stepInterval": 60,
+          "dataSource": "metrics",
+          "expression": "A",
+          "disabled": false,
+          "metric": "signoz_latency_bucket",
+          "filters": {
+            "op": "AND",
+            "items": [
+              { "key": { "key": "service_name", "type": "tag" }, "op": "=", "value": "signoz-demo-order-service" },
+              { "key": { "key": "span_kind", "type": "tag" }, "op": "=", "value": "SPAN_KIND_SERVER" }
+            ]
+          },
+          "groupBy": [{ "key": "operation", "type": "tag" }],
+          "legend": "p95_latency_ms",
+          "reduceTo": "p95",
+          "timeAggregation": "p95",
+          "spaceAggregation": "p95"
+        }
+      },
+      "queryNames": ["A"]
+    },
+    "op": "1",
+    "matchType": "1",
+    "target": 1200,
+    "targetUnit": "ms",
+    "selectedQueryName": "A",
+    "absentFor": 0,
+    "alertOnAbsent": false
+  },
+  "evalWindow": "5m0s",
+  "frequency": "1m0s",
+  "version": "v4",
+  "source": "signoz-demo/observability/alerts/high-p95-latency.json"
+}

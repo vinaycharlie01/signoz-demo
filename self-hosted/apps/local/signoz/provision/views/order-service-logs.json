@@ -1,0 +1,32 @@
+{
+  "name": "signoz-demo — Order Service Logs",
+  "sourcePage": "logs",
+  "query": {
+    "queryType": "builder",
+    "panelType": "list",
+    "builderQueries": {
+      "A": {
+        "queryName": "A",
+        "dataSource": "logs",
+        "expression": "A",
+        "disabled": false,
+        "filters": {
+          "op": "AND",
+          "items": [
+            {
+              "key": { "key": "service.name", "type": "resource" },
+              "op": "=",
+              "value": "signoz-demo-order-service"
+            }
+          ]
+        },
+        "orderBy": [{ "columnName": "timestamp", "order": "desc" }],
+        "limit": 100,
+        "offset": 0,
+        "pageSize": 100,
+        "selectColumns": []
+      }
+    }
+  },
+  "extraData": "{\"selectedTime\":\"15min\"}"
+}
