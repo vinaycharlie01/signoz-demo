@@ -101,6 +101,16 @@ func (Docker) BuildxBuild() error {
 // docker.yaml -> push).
 func (Docker) Push() error { return dockermagex.Push() }
 
+// BuildAndPush cross-compiles, builds the multi-arch image with buildx, and
+// pushes it to the registry in one shot. Used by CI (docker.yaml ->
+// buildxBuild.push must be true). Equivalent to running BuildxBuild then Push,
+// but avoids the separate `docker push` step that fails when the image was
+// built with --push and never loaded into the local daemon.
+func (Docker) BuildAndPush() error {
+	mg.Deps(Go.CrossBuild)
+	return dockermagex.BuildxBuild()
+}
+
 // Login logs in to the container registry (config: docker.yaml -> login).
 func (Docker) Login() error { return dockermagex.Login() }
 

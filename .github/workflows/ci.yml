@@ -50,22 +50,12 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       # Only log in when we are actually going to push (i.e. not on a PR).
-      # docker.yaml login section supplies registry + username;
-      # GITHUB_TOKEN is passed via stdin (passwordStdin: true).
-      - name: Log in to GHCR
+      - name: Login to GHCR
         if: github.event_name != 'pull_request'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: echo "$GITHUB_TOKEN" | mage docker:login
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      # Cross-compiles linux/amd64 + linux/arm64 binaries, then runs
-      # `docker buildx build` with the platforms, tags, and push flag
-      # defined in docker.yaml → buildxBuild section.
-      - name: Build multi-arch image
-        run: mage docker:buildxBuild
-
-      # Push the image to GHCR (docker.yaml → push section).
-      # Skipped on PRs — we only push on branch commits.
-      - name: Push image to GHCR
-        if: github.event_name != 'pull_request'
-        run: mage docker:push
+      # Cross-compiles linux/amd64 + linux/arm64 binaries via mg.Deps(Go.CrossBuild),
+      # then runs `docker buildx build --push` using the platforms and tags defined
+      # in docker.yaml → buildxBuild. Skips push on PRs by overriding the flag.
+      - name: Build and Push Docker
+        run: mage docker:buildAndPush
