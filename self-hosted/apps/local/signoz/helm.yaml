@@ -1,0 +1,23 @@
+# Helm configuration for the SigNoz release.
+# Used by `mage helm:installSignoz` via helmmagex.NewRunnerFromYAML.
+# The values file path is relative to the signoz-demo repo root (where mage runs).
+
+repoAdd:
+  name: signoz
+  url: https://charts.signoz.io
+
+repoUpdate: {}
+
+upgrade:
+  releaseName: signoz
+  chart: signoz/signoz
+  namespace: signoz
+  createNamespace: true
+  install: true
+  timeout: 15m
+  values:
+    - self-hosted/apps/local/signoz/values.yaml
+
+uninstall:
+  releaseName: signoz
+  namespace: signoz

@@ -18,15 +18,16 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
 
 	"github.com/magefile/mage/mg"
 
 	dockermagex "github.com/nirantaraai/nava/mage/docker"
 	gomagex "github.com/nirantaraai/nava/mage/golang"
+	helmmagex "github.com/nirantaraai/nava/mage/helm"
 	k3dmagex "github.com/nirantaraai/nava/mage/k3d"
+	k8smagex "github.com/nirantaraai/nava/mage/k8s"
 	sopsmagex "github.com/nirantaraai/nava/mage/sops"
+	k8sx "github.com/nirantaraai/nava/pkg/k8s"
 )
 
 const k3dConfigPath = "self-hosted/k3d.yaml"
@@ -194,36 +195,29 @@ func (Helm) CreateRepoSecret() error { return k3dmagex.CreateRepoSecret() }
 // chart (https://charts.signoz.io).
 //
 // Run after `mage cluster:up` (cluster + ingress-nginx must be ready first).
-// Override the values file with SIGNOZ_VALUES env var if needed.
+// All release options are in self-hosted/apps/local/signoz/helm.yaml.
 func (Helm) InstallSignoz() error {
-	valuesFile := os.Getenv("SIGNOZ_VALUES")
-	if valuesFile == "" {
-		valuesFile = "self-hosted/apps/local/signoz/values.yaml"
-	}
-
-	fmt.Println("Adding SigNoz Helm repo...")
-	if err := runHelm("repo", "add", "signoz", "https://charts.signoz.io"); err != nil {
-		fmt.Printf("  (repo add: %v — continuing)\n", err)
-	}
-	if err := runHelm("repo", "update"); err != nil {
+	h, err := helmmagex.NewRunnerFromYAML("self-hosted/apps/local/signoz/helm.yaml")
+	if err != nil {
 		return err
 	}
-
-	fmt.Printf("Installing SigNoz Helm chart with values: %s\n", valuesFile)
-	return runHelm(
-		"upgrade", "--install",
-		"signoz", "signoz/signoz",
-		"--namespace", "signoz",
-		"--create-namespace",
-		"--values", valuesFile,
-		"--timeout", "15m",
-	)
+	if err := h.RepoAdd(); err != nil {
+		fmt.Printf("  (repo add: %v — continuing)\n", err)
+	}
+	if err := h.RepoUpdate(); err != nil {
+		return err
+	}
+	return h.Upgrade()
 }
 
 // UninstallSignoz uninstalls the SigNoz Helm release.
+// All release options are in self-hosted/apps/local/signoz/helm.yaml.
 func (Helm) UninstallSignoz() error {
-	fmt.Println("Uninstalling SigNoz Helm release...")
-	return runHelm("uninstall", "signoz", "--namespace", "signoz")
+	h, err := helmmagex.NewRunnerFromYAML("self-hosted/apps/local/signoz/helm.yaml")
+	if err != nil {
+		return err
+	}
+	return h.Uninstall()
 }
 
 // ApplySignozIngress applies the standalone Ingress manifest that exposes the
@@ -235,7 +229,9 @@ func (Helm) UninstallSignoz() error {
 func (Helm) ApplySignozIngress() error {
 	ingressFile := "self-hosted/apps/local/signoz/ingress.yaml"
 	fmt.Printf("Applying SigNoz ingress manifest: %s\n", ingressFile)
-	return runKubectl("apply", "-f", ingressFile)
+	return k8smagex.Apply(k8sx.ApplyOptions{
+		Filenames: []string{ingressFile},
+	})
 }
 
 // InstallK8sInfra installs the SigNoz k8s-infra Helm chart, which deploys an
@@ -244,33 +240,29 @@ func (Helm) ApplySignozIngress() error {
 // all to the SigNoz ingester running inside the same cluster.
 //
 // Run AFTER `mage helm:installSignoz` (SigNoz must be ready to receive data).
+// All release options are in self-hosted/apps/local/observability/k8s-infra/helm.yaml.
 func (Helm) InstallK8sInfra() error {
-	baseValues := "self-hosted/apps/base/observability/k8s-infra/values.yaml"
-	envValues := "self-hosted/apps/local/observability/k8s-infra/values.yaml"
-
-	fmt.Println("Installing k8s-infra Helm chart (pod log + metric collection)...")
-	if err := runHelm("repo", "add", "signoz", "https://charts.signoz.io"); err != nil {
-		fmt.Printf("  (repo add: %v — continuing)\n", err)
-	}
-	if err := runHelm("repo", "update"); err != nil {
+	h, err := helmmagex.NewRunnerFromYAML("self-hosted/apps/local/observability/k8s-infra/helm.yaml")
+	if err != nil {
 		return err
 	}
-
-	return runHelm(
-		"upgrade", "--install",
-		"k8s-infra", "signoz/k8s-infra",
-		"--namespace", "k8s-infra",
-		"--create-namespace",
-		"--values", baseValues,
-		"--values", envValues,
-		"--timeout", "10m",
-	)
+	if err := h.RepoAdd(); err != nil {
+		fmt.Printf("  (repo add: %v — continuing)\n", err)
+	}
+	if err := h.RepoUpdate(); err != nil {
+		return err
+	}
+	return h.Upgrade()
 }
 
 // UninstallK8sInfra uninstalls the k8s-infra Helm release.
+// All release options are in self-hosted/apps/local/observability/k8s-infra/helm.yaml.
 func (Helm) UninstallK8sInfra() error {
-	fmt.Println("Uninstalling k8s-infra Helm release...")
-	return runHelm("uninstall", "k8s-infra", "--namespace", "k8s-infra")
+	h, err := helmmagex.NewRunnerFromYAML("self-hosted/apps/local/observability/k8s-infra/helm.yaml")
+	if err != nil {
+		return err
+	}
+	return h.Uninstall()
 }
 
 // Gitops namespace: ArgoCD GitOps workflow for the self-hosted SigNoz stack.
@@ -318,38 +310,23 @@ type Deploy mg.Namespace
 func (Deploy) SignozDemo() error {
 	kustomizePath := "deploy/overlays/local"
 	fmt.Printf("Deploying signoz-demo from: %s\n", kustomizePath)
-	return runKubectl("apply", "-k", kustomizePath)
+	return k8smagex.Apply(k8sx.ApplyOptions{
+		Kustomize: kustomizePath,
+	})
 }
 
 // SignozDemoRollout waits for the signoz-demo rollout to complete.
 func (Deploy) SignozDemoRollout() error {
 	fmt.Println("Waiting for signoz-demo rollout...")
-	return runKubectl("rollout", "status", "deployment/signoz-demo",
-		"-n", "signoz-demo", "--timeout=120s")
+	return k8smagex.RolloutStatus("deployment/signoz-demo", "signoz-demo", "120s")
 }
 
 // K8sInfraStatus shows the status of the k8s-infra pods.
 func (Deploy) K8sInfraStatus() error {
-	return runKubectl("get", "pods", "-n", "k8s-infra")
+	return k8smagex.Get("pods", "", "k8s-infra")
 }
 
 // SignozStatus shows the status of the SigNoz pods.
 func (Deploy) SignozStatus() error {
-	return runKubectl("get", "pods", "-n", "signoz")
-}
-
-// ---------- helpers ----------
-
-func runKubectl(args ...string) error {
-	cmd := exec.Command("kubectl", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
-
-func runHelm(args ...string) error {
-	cmd := exec.Command("helm", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return k8smagex.Get("pods", "", "signoz")
 }

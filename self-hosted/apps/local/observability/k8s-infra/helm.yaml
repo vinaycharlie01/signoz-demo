@@ -1,0 +1,24 @@
+# Helm configuration for the k8s-infra release.
+# Used by `mage helm:installK8sInfra` via helmmagex.NewRunnerFromYAML.
+# The values file paths are relative to the signoz-demo repo root (where mage runs).
+
+repoAdd:
+  name: signoz
+  url: https://charts.signoz.io
+
+repoUpdate: {}
+
+upgrade:
+  releaseName: k8s-infra
+  chart: signoz/k8s-infra
+  namespace: k8s-infra
+  createNamespace: true
+  install: true
+  timeout: 10m
+  values:
+    - self-hosted/apps/base/observability/k8s-infra/values.yaml
+    - self-hosted/apps/local/observability/k8s-infra/values.yaml
+
+uninstall:
+  releaseName: k8s-infra
+  namespace: k8s-infra
